@@ -178,6 +178,8 @@
             border-radius: 4px;
             color: white;
             margin-right: 4px;
+            cursor: pointer;
+            user-select: none;
         }
         .team-red { background-color: #ef4444; }
         .team-blue { background-color: #3b82f6; }
@@ -381,7 +383,7 @@
                  <!-- Guest Display -->
                  <span id="guestTeamStatus" class="text-sm font-bold text-gray-400 hidden">OFF</span>
              </div>
-             <p class="text-xs text-gray-400 mt-1 pl-2">※隣接プレイヤーとチームになります</p>
+             <p class="text-xs text-gray-400 mt-1 pl-2">※赤/青ボタンでチームを変更できます</p>
         </div>
 
         <p id="lobbyStatus" class="text-sm text-gray-500 mb-4 animate-pulse">他のプレイヤーを待っています...</p>
@@ -599,13 +601,14 @@
             const roomId = Math.floor(100000 + Math.random() * 900000).toString();
             const max = onlineState.createPlayers;
             
+            // チーム初期割り当て
             const roomData = {
                 hostId: user.uid,
                 status: 'waiting',
                 maxPlayers: max,
                 isTeamMode: false,
                 createdAt: serverTimestamp(),
-                players: [{ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar }],
+                players: [{ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar, team: 'Red' }],
                 board: null
             };
             await setDoc(getRoomRef(roomId), roomData);
@@ -641,9 +644,12 @@
                 enterLobby(roomId); 
                 return;
             }
+            
+            // チーム自動割り当て（人数に応じて交互に）
+            const nextTeam = (data.players.length % 2 === 0) ? 'Red' : 'Blue';
 
             await updateDoc(roomRef, {
-                players: arrayUnion({ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar })
+                players: arrayUnion({ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar, team: nextTeam })
             });
             enterLobby(roomId);
         };
@@ -662,7 +668,6 @@
                 onlineState.isHost = isHost;
                 onlineState.isTeamMode = data.isTeamMode || false;
 
-                // ロビー状態ならロビー画面へ
                 if (data.status === 'waiting' && document.getElementById('lobbyScreen').classList.contains('hidden')) {
                     showScreen('lobbyScreen');
                     document.getElementById('winOverlay').classList.add('hidden');
@@ -671,21 +676,31 @@
                 document.getElementById('lobbyCapacity').textContent = `${data.players.length} / ${data.maxPlayers}`;
                 
                 const list = document.getElementById('lobbyPlayerList');
-                list.innerHTML = data.players.map(p => `
+                list.innerHTML = data.players.map(p => {
+                    let teamBadge = '';
+                    if (onlineState.isTeamMode && data.maxPlayers === 4) {
+                        const teamClass = p.team === 'Red' ? 'team-red' : 'team-blue';
+                        const teamName = p.team || '?';
+                        // ホストのみクリック可能
+                        const clickAttr = isHost ? `onclick="togglePlayerTeam('${p.uid}')"` : '';
+                        teamBadge = `<span class="team-badge ${teamClass}" ${clickAttr}>${teamName}</span>`;
+                    }
+                    
+                    return `
                     <li class="flex justify-between items-center bg-gray-50 p-2 rounded">
                         <span class="flex items-center gap-2">
+                            ${teamBadge}
                             <span>${p.avatar || '👤'}</span>
                             <span>${p.name}</span>
                             ${p.uid === user.uid ? '<span class="text-xs text-indigo-500 bg-indigo-50 px-1 rounded">You</span>' : ''}
                         </span>
                         ${p.uid === data.hostId ? '👑' : ''}
                     </li>
-                `).join('');
+                `}).join('');
 
                 const btn = document.getElementById('startGameBtn');
                 const teamCtrl = document.getElementById('teamModeControl');
                 
-                // 4人部屋ならチーム設定を表示
                 if (data.maxPlayers === 4) {
                     teamCtrl.classList.remove('hidden');
                     
@@ -742,7 +757,37 @@
         window.toggleTeamMode = async () => {
              const roomRef = getRoomRef(onlineState.roomId);
              const newValue = document.getElementById('toggleTeam').checked;
-             await updateDoc(roomRef, { isTeamMode: newValue });
+             
+             // モード切替時にチーム人数をリバランス（Red, Red, Blue, Blue）
+             const snap = await getDoc(roomRef);
+             const players = snap.data().players;
+             if (newValue) {
+                 const newPlayers = players.map((p, i) => ({
+                     ...p,
+                     team: (i % 2 === 0) ? 'Red' : 'Blue'
+                 }));
+                 await updateDoc(roomRef, { isTeamMode: newValue, players: newPlayers });
+             } else {
+                 await updateDoc(roomRef, { isTeamMode: newValue });
+             }
+        };
+
+        window.togglePlayerTeam = async (targetUid) => {
+            // イベントバブリング防止はHTML側で制御できないので、
+            // 実際はチーム戦モードかつホストのときのみ呼ばれる
+            const roomRef = getRoomRef(onlineState.roomId);
+            const snap = await getDoc(roomRef);
+            const data = snap.data();
+            
+            if (!data.isTeamMode) return;
+
+            const newPlayers = data.players.map(p => {
+                if (p.uid === targetUid) {
+                    return { ...p, team: p.team === 'Red' ? 'Blue' : 'Red' };
+                }
+                return p;
+            });
+            await updateDoc(roomRef, { players: newPlayers });
         };
 
         window.startOnlineGame = async () => {
@@ -751,13 +796,29 @@
             const data = snap.data();
             const playerCount = data.players.length;
             if (playerCount < 2) return;
-
-            const board = createInitialBoard(playerCount, data.players, data.isTeamMode);
-
-            await updateDoc(roomRef, {
-                status: 'playing',
-                board: board
-            });
+            
+            // チーム戦のバリデーション（2vs2のみ許可）
+            if (data.isTeamMode && playerCount === 4) {
+                const reds = data.players.filter(p => p.team === 'Red').length;
+                const blues = data.players.filter(p => p.team === 'Blue').length;
+                if (reds !== 2 || blues !== 2) {
+                    alert("チーム人数が均等ではありません（2対2にしてください）");
+                    return;
+                }
+                
+                // 席順を並び替え：Redチーム(0,1) vs Blueチーム(2,3) にする
+                // これにより Redは下＆左、Blueは上＆右 になり隣接する
+                const redTeam = data.players.filter(p => p.team === 'Red');
+                const blueTeam = data.players.filter(p => p.team === 'Blue');
+                const sortedPlayers = [...redTeam, ...blueTeam];
+                
+                const board = createInitialBoard(playerCount, sortedPlayers, true);
+                await updateDoc(roomRef, { status: 'playing', board: board });
+                
+            } else {
+                const board = createInitialBoard(playerCount, data.players, false);
+                await updateDoc(roomRef, { status: 'playing', board: board });
+            }
         };
         
         function createInitialBoard(playerCount, playersData, isTeamMode) {
@@ -770,6 +831,7 @@
             const boardPlayers = [];
             
             // Configs for position
+            // 0:Bottom, 1:Left, 2:Top, 3:Right
             const configs = [
                 {x:4, y:8}, // P1 (Bottom)
                 {x:0, y:4}, // P2 (Left)
@@ -786,15 +848,13 @@
                 let team = null;
                 
                 if (isTeamMode && playerCount === 4) {
-                    // Team Red: P1(0) & P2(1) (Bottom & Left)
+                    // 並び替え済みなので、0,1はRed、2,3はBlue
                     if (i === 0 || i === 1) {
                         team = 'Red';
-                        color = teamColors[i]; // Red, Pink
-                    } 
-                    // Team Blue: P3(2) & P4(3) (Top & Right)
-                    else {
+                        color = teamColors[i]; 
+                    } else {
                         team = 'Blue';
-                        color = teamColors[i]; // Blue, Cyan
+                        color = teamColors[i]; 
                     }
                 }
 
@@ -890,7 +950,24 @@
              const roomRef = getRoomRef(onlineState.roomId);
              const snap = await getDoc(roomRef);
              const data = snap.data();
-             const board = createInitialBoard(data.players.length, data.players, onlineState.isTeamMode);
+             
+             // 再戦時もチームモードとプレイヤー順序を考慮して盤面生成
+             // ゲーム開始時にソートされた順番でboard.playersに入っているはずなので
+             // 前回のboard.playersの順序とチーム情報を使って再構築するのが安全だが
+             // ここでは簡易的に現在のplayers配列（ロビー順）を再度ソートして使う
+             let playersToUse = data.players;
+             
+             if (onlineState.isTeamMode && playersToUse.length === 4) {
+                const redTeam = playersToUse.filter(p => p.team === 'Red');
+                const blueTeam = playersToUse.filter(p => p.team === 'Blue');
+                // もしチーム情報が消えていたらランダム割り当て等のケアが必要だが
+                // 基本的には残っている前提
+                if (redTeam.length === 2 && blueTeam.length === 2) {
+                    playersToUse = [...redTeam, ...blueTeam];
+                }
+             }
+
+             const board = createInitialBoard(playersToUse.length, playersToUse, onlineState.isTeamMode);
              
              await updateDoc(roomRef, {
                  status: 'playing',
