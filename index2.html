@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>コリドール・オンライン</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap');
+
+        body {
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            background-color: #f0f4f8;
+            user-select: none;
+            touch-action: none;
+            overflow: hidden;
+        }
+
+        /* UI Overlays */
+        .overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.3s;
+        }
+        
+        .overlay.hidden {
+            display: none;
+        }
+
+        .btn-primary {
+            background-color: #4f46e5;
+            color: white;
+            font-weight: bold;
+            padding: 12px 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
+            transition: transform 0.1s, background-color 0.2s;
+        }
+        .btn-primary:active { transform: scale(0.95); }
+        .btn-primary:hover { background-color: #4338ca; }
+
+        .btn-secondary {
+            background-color: white;
+            color: #4b5563;
+            border: 2px solid #e5e7eb;
+            font-weight: bold;
+            padding: 12px 24px;
+            border-radius: 12px;
+            transition: transform 0.1s;
+        }
+        .btn-secondary:active { transform: scale(0.95); }
+
+        .btn-select {
+            border: 2px solid #e5e7eb;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+            color: #6b7280;
+            transition: all 0.2s;
+        }
+        .btn-select.selected {
+            border-color: #4f46e5;
+            background-color: #eef2ff;
+            color: #4f46e5;
+        }
+
+        .avatar-select {
+            font-size: 2rem;
+            padding: 0.5rem;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: transform 0.1s;
+        }
+        .avatar-select:hover { transform: scale(1.1); }
+        .avatar-select.selected {
+            border-color: #4f46e5;
+            background-color: #eef2ff;
+        }
+
+        /* Game Layout */
+        .game-layout {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            padding-top: 60px;
+        }
+
+        .canvas-container {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            background: #e8dcc5;
+            position: relative;
+            z-index: 10;
+        }
+
+        canvas {
+            display: block;
+            touch-action: none;
+        }
+
+        /* Header UI */
+        .header-ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 8px;
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            z-index: 40;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            width: 100%;
+            flex-wrap: wrap;
+            padding-right: 40px;
+        }
+
+        .player-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 4px 8px;
+            border-radius: 16px;
+            background: #f3f4f6;
+            color: #6b7280;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .player-stat.active {
+            background: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transform: scale(1.05);
+        }
+        
+        .player-stat.me {
+            border-style: dashed;
+            border-color: #6366f1;
+        }
+
+        .top-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 6px 12px;
+            background: #f3f4f6;
+            color: #6b7280;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .top-btn:hover { background: #e5e7eb; color: #374151; }
+
+        .mobile-controls {
+            display: flex;
+            gap: 16px;
+            margin-top: 4px;
+        }
+
+        .wall-source {
+            width: 40px;
+            height: 40px;
+            background: #f9fafb;
+            border: 2px solid #d1d5db;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: grab;
+        }
+        
+        .wall-source.disabled { opacity: 0.3; pointer-events: none; }
+        .wall-icon-v { width: 6px; height: 20px; background-color: #855e42; border-radius: 2px; }
+        .wall-icon-h { width: 20px; height: 6px; background-color: #855e42; border-radius: 2px; }
+
+        .drag-ghost {
+            position: fixed;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.8;
+            background-color: #855e42;
+            border-radius: 4px;
+            display: none;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .room-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: #333;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+            z-index: 60;
+            cursor: pointer;
+        }
+        
+        .avatar-display {
+            display: inline-flex;
+            width: 20px;
+            height: 20px;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            border-radius: 50%;
+            font-size: 12px;
+            margin-right: 4px;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden">
+
+    <!-- Screen: Start -->
+    <div id="startScreen" class="overlay">
+        <h1 class="text-4xl font-bold text-gray-700 mb-2 text-center">Quoridor<br><span class="text-indigo-500 text-2xl">Online</span></h1>
+        
+        <!-- Profile Preview -->
+        <div onclick="showScreen('profileScreen')" class="mb-8 flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow cursor-pointer hover:bg-gray-50 transition">
+            <span id="homeAvatar" class="text-2xl">🐶</span>
+            <span id="homeName" class="font-bold text-gray-700">Player</span>
+            <span class="text-xs text-indigo-500">✎変更</span>
+        </div>
+
+        <div class="w-full max-w-xs space-y-4">
+            <button onclick="showOfflineSetup()" class="btn-secondary w-full flex items-center justify-center gap-2">
+                <span>📱 オフラインで遊ぶ</span>
+            </button>
+            <button onclick="showScreen('onlineMenu')" class="btn-primary w-full flex items-center justify-center gap-2">
+                <span>🌐 オンラインで遊ぶ</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Screen: Profile Settings -->
+    <div id="profileScreen" class="overlay hidden">
+        <h2 class="text-2xl font-bold text-gray-700 mb-6">プロフィール設定</h2>
+        <div class="w-full max-w-xs space-y-6">
+            <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">名前</label>
+                <input type="text" id="inputName" class="w-full p-3 border-2 border-gray-200 rounded-xl font-bold outline-none focus:border-indigo-500" placeholder="名前を入力" maxlength="8">
+            </div>
+            <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">アイコン</label>
+                <div class="flex flex-wrap gap-2 justify-center" id="avatarList">
+                    <!-- JS Injected -->
+                </div>
+            </div>
+            <button onclick="saveProfile()" class="btn-primary w-full">保存する</button>
+        </div>
+    </div>
+
+    <!-- Screen: Offline Setup -->
+    <div id="offlineSetup" class="overlay hidden">
+        <h2 class="text-2xl font-bold text-gray-700 mb-6">オフライン設定</h2>
+        <div class="w-full max-w-xs space-y-6">
+            <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">人数</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="off-2p" class="btn-select" onclick="setOfflinePlayers(2)">2人</button>
+                    <button id="off-4p" class="btn-select" onclick="setOfflinePlayers(4)">4人</button>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-bold text-gray-500 mb-2">操作</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="off-pc" class="btn-select" onclick="setDevice('pc')">PC</button>
+                    <button id="off-mob" class="btn-select" onclick="setDevice('mobile')">スマホ</button>
+                </div>
+            </div>
+            <button onclick="startOfflineGame()" class="btn-primary w-full">スタート</button>
+            <button onclick="showScreen('startScreen')" class="text-sm text-gray-400 w-full mt-2">戻る</button>
+        </div>
+    </div>
+
+    <!-- Screen: Online Menu -->
+    <div id="onlineMenu" class="overlay hidden">
+        <h2 class="text-2xl font-bold text-gray-700 mb-6">オンライン対戦</h2>
+        <div class="w-full max-w-xs space-y-6">
+            <!-- Create Room Section -->
+            <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                <label class="block text-xs font-bold text-indigo-500 mb-2">部屋を作る</label>
+                <div class="grid grid-cols-2 gap-2 mb-3">
+                    <button id="on-create-2p" class="btn-select bg-white" onclick="setOnlineCreatePlayers(2)">2人対戦</button>
+                    <button id="on-create-4p" class="btn-select bg-white" onclick="setOnlineCreatePlayers(4)">4人対戦</button>
+                </div>
+                <button onclick="createRoomUI()" class="btn-primary w-full text-sm">作成</button>
+            </div>
+
+            <!-- Join Room Section -->
+            <div>
+                <div class="relative mb-2">
+                    <input type="text" id="joinRoomId" placeholder="ルームID (6桁)" maxlength="6" class="w-full p-3 border-2 border-gray-200 rounded-xl text-center font-bold text-lg focus:border-indigo-500 outline-none">
+                </div>
+                <button onclick="joinRoomUI()" class="btn-secondary w-full">部屋に入る</button>
+            </div>
+            
+            <button onclick="showScreen('startScreen')" class="text-sm text-gray-400 w-full mt-2">戻る</button>
+        </div>
+    </div>
+
+    <!-- Screen: Room Lobby -->
+    <div id="lobbyScreen" class="overlay hidden">
+        <h2 class="text-xl font-bold text-gray-500 mb-2">ルームID</h2>
+        <div class="text-4xl font-mono font-bold text-indigo-600 mb-6 tracking-widest bg-indigo-50 px-6 py-2 rounded-xl border-2 border-indigo-100" id="displayRoomId">------</div>
+        
+        <div class="w-full max-w-xs bg-white rounded-xl shadow-sm border p-4 mb-6">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-sm font-bold text-gray-400">参加者リスト</h3>
+                <span id="lobbyCapacity" class="text-xs font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded">? / ?</span>
+            </div>
+            <ul id="lobbyPlayerList" class="space-y-2 text-sm font-bold text-gray-700">
+                <!-- Injected JS -->
+            </ul>
+        </div>
+
+        <p id="lobbyStatus" class="text-sm text-gray-500 mb-4 animate-pulse">他のプレイヤーを待っています...</p>
+        
+        <button id="startGameBtn" onclick="startOnlineGame()" class="btn-primary w-full max-w-xs hidden">ゲーム開始</button>
+        <button onclick="leaveRoom()" class="text-sm text-red-400 w-full mt-4">退出する</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="gameContainer" class="hidden h-full w-full relative">
+        <div id="roomBadge" class="room-badge hidden" onclick="copyRoomId()">ID: <span id="gameRoomId"></span></div>
+
+        <!-- Header -->
+        <div class="header-ui">
+            <div id="statsBar" class="stats-row"></div>
+            <button onclick="location.reload()" class="top-btn">TOP</button>
+            
+            <div class="mobile-controls" id="mobileControls">
+                <div class="wall-source" id="drag-v" ontouchstart="startDragWall(event, 'V')" onmousedown="startDragWall(event, 'V')">
+                    <div class="wall-icon-v"></div>
+                </div>
+                <div class="wall-source" id="drag-h" ontouchstart="startDragWall(event, 'H')" onmousedown="startDragWall(event, 'H')">
+                    <div class="wall-icon-h"></div>
+                </div>
+            </div>
+            
+            <div id="turnMessage" class="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full mt-1">
+                あなたの番です
+            </div>
+        </div>
+
+        <div class="game-layout">
+            <div class="canvas-container">
+                <canvas id="gameCanvas" width="540" height="540"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div id="dragGhost" class="drag-ghost"></div>
+
+    <!-- Winner Overlay -->
+    <div id="winOverlay" class="overlay hidden">
+        <h2 id="winnerText" class="text-3xl font-bold mb-4 text-gray-800">Winner!</h2>
+        <button onclick="location.reload()" class="btn-primary">トップへ戻る</button>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, arrayUnion, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+        // ==========================================
+        // ★★★ Firebaseの設定エリア (ここを書き換えて！) ★★★
+        // ==========================================
+        
+        const firebaseConfig = {
+            apiKey: "AIzaSyDETn1CILgo_9rBDzkAzbQpknBxCwfHHXA",
+  authDomain: "quoridor-online-cc3cf.firebaseapp.com",
+  projectId: "quoridor-online-cc3cf",
+  storageBucket: "quoridor-online-cc3cf.firebasestorage.app",
+  messagingSenderId: "739836219292",
+  appId: "1:739836219292:web:a2b2276394af407cdc0259",
+  measurementId: "G-DF7F022Q2E"
+
+        };
+        
+        // ==========================================
+        // ★★★ 書き換えここまで ★★★
+        // ==========================================
+
+        // アプリID（このままでOK）
+        const appId = 'my-quoridor-online';
+
+        // --- Init ---
+        // ※この環境で動かすためのチェック（ローカルで動かすときは無視してOK）
+        let app, auth, db;
+        try {
+            // Preview環境用の特殊処理（ユーザーは気にしなくてOK）
+            const configToUse = (typeof __firebase_config !== 'undefined') ? JSON.parse(__firebase_config) : firebaseConfig;
+            app = initializeApp(configToUse);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch(e) {
+            console.error("Firebase Init Error:", e);
+            alert("Firebaseの設定が間違っているかも！コードを確認してね。");
+        }
+
+        // --- Profile & State ---
+        let myProfile = { name: "Player", avatar: "🐶" };
+        const AVATARS = ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷"];
+        
+        let user = null;
+        let gameState = {
+            mode: 'offline',
+            players: [],
+            walls: [],
+            turn: 0,
+            winner: null,
+            config: { playerCount: 4, device: 'pc' }
+        };
+        
+        let onlineState = {
+            roomId: null,
+            myUid: null,
+            myIndex: -1,
+            isHost: false,
+            unsubscribe: null,
+            createPlayers: 4 
+        };
+
+        // --- Load Profile ---
+        const savedProfile = localStorage.getItem('quoridor_profile');
+        if (savedProfile) {
+            try { myProfile = JSON.parse(savedProfile); } catch(e){}
+        }
+        updateProfileUI();
+        initAvatarList();
+
+        // --- Auth ---
+        const initAuth = async () => {
+             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+             } else {
+                await signInAnonymously(auth);
+             }
+        };
+        initAuth();
+        onAuthStateChanged(auth, (u) => {
+            if (u) {
+                user = u;
+                onlineState.myUid = u.uid;
+            }
+        });
+
+        // --- UI Functions ---
+        window.showScreen = (id) => {
+            document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+            document.getElementById('gameContainer').classList.add('hidden');
+            const target = document.getElementById(id);
+            if(target) target.classList.remove('hidden');
+        };
+
+        // Profile UI
+        function updateProfileUI() {
+            document.getElementById('homeName').textContent = myProfile.name;
+            document.getElementById('homeAvatar').textContent = myProfile.avatar;
+            document.getElementById('inputName').value = myProfile.name;
+        }
+
+        function initAvatarList() {
+            const list = document.getElementById('avatarList');
+            list.innerHTML = AVATARS.map(a => 
+                `<div class="avatar-select ${a === myProfile.avatar ? 'selected' : ''}" onclick="selectAvatar('${a}')">${a}</div>`
+            ).join('');
+        }
+
+        window.selectAvatar = (a) => {
+            myProfile.avatar = a;
+            initAvatarList();
+        };
+
+        window.saveProfile = () => {
+            const name = document.getElementById('inputName').value.trim() || "Player";
+            myProfile.name = name;
+            localStorage.setItem('quoridor_profile', JSON.stringify(myProfile));
+            updateProfileUI();
+            showScreen('startScreen');
+        };
+
+        // Offline Setup UI
+        window.showOfflineSetup = () => {
+            // Force reset UI state to match default config (4p, PC) or keep last used
+            setOfflinePlayers(gameState.config.playerCount); 
+            setDevice(gameState.config.device);
+            showScreen('offlineSetup');
+        };
+
+        window.setOfflinePlayers = (n) => {
+            gameState.config.playerCount = n;
+            document.getElementById('off-2p').classList.toggle('selected', n===2);
+            document.getElementById('off-4p').classList.toggle('selected', n===4);
+        };
+
+        window.setDevice = (d) => {
+            gameState.config.device = d;
+            document.getElementById('off-pc').classList.toggle('selected', d==='pc');
+            document.getElementById('off-mob').classList.toggle('selected', d==='mobile');
+        };
+        
+        // Online Setup UI
+        window.setOnlineCreatePlayers = (n) => {
+            onlineState.createPlayers = n;
+            document.getElementById('on-create-2p').classList.toggle('selected', n===2);
+            document.getElementById('on-create-4p').classList.toggle('selected', n===4);
+        };
+        // Init default selection for online create
+        setOnlineCreatePlayers(4);
+
+
+        // --- Online Logic ---
+        const getRoomRef = (roomId) => doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
+
+        window.createRoomUI = async () => {
+            if (!user) return alert("接続中...");
+            const roomId = Math.floor(100000 + Math.random() * 900000).toString();
+            const max = onlineState.createPlayers;
+            
+            const roomData = {
+                hostId: user.uid,
+                status: 'waiting',
+                maxPlayers: max,
+                createdAt: serverTimestamp(),
+                players: [{ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar }],
+                board: null
+            };
+            await setDoc(getRoomRef(roomId), roomData);
+            enterLobby(roomId, true);
+        };
+
+        window.joinRoomUI = async () => {
+            if (!user) return alert("接続中...");
+            const roomId = document.getElementById('joinRoomId').value;
+            if (roomId.length !== 6) return alert("6桁のIDを入力してください");
+
+            const roomRef = getRoomRef(roomId);
+            const snap = await getDoc(roomRef);
+
+            if (!snap.exists()) return alert("部屋が見つかりません");
+            const data = snap.data();
+            
+            if (data.status !== 'waiting') return alert("この部屋は既にゲーム中です");
+            if (data.players.length >= data.maxPlayers) return alert("満員です");
+            
+            // Re-join check
+            if (data.players.some(p => p.uid === user.uid)) {
+                enterLobby(roomId, false);
+                return;
+            }
+
+            await updateDoc(roomRef, {
+                players: arrayUnion({ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar })
+            });
+            enterLobby(roomId, false);
+        };
+
+        function enterLobby(roomId, isHost) {
+            onlineState.roomId = roomId;
+            onlineState.isHost = isHost;
+            gameState.mode = 'online';
+            document.getElementById('displayRoomId').textContent = roomId;
+            showScreen('lobbyScreen');
+
+            onlineState.unsubscribe = onSnapshot(getRoomRef(roomId), (doc) => {
+                const data = doc.data();
+                if (!data) return;
+                
+                // Lobby UI
+                document.getElementById('lobbyCapacity').textContent = `${data.players.length} / ${data.maxPlayers}`;
+                
+                const list = document.getElementById('lobbyPlayerList');
+                list.innerHTML = data.players.map(p => `
+                    <li class="flex justify-between items-center bg-gray-50 p-2 rounded">
+                        <span class="flex items-center gap-2">
+                            <span>${p.avatar || '👤'}</span>
+                            <span>${p.name}</span>
+                            ${p.uid === user.uid ? '<span class="text-xs text-indigo-500 bg-indigo-50 px-1 rounded">You</span>' : ''}
+                        </span>
+                        ${p.uid === data.hostId ? '👑' : ''}
+                    </li>
+                `).join('');
+
+                // Start Button control
+                const btn = document.getElementById('startGameBtn');
+                if (isHost) {
+                    btn.classList.remove('hidden');
+                    // Disable if not enough players (min 2)
+                    if (data.players.length < 2) {
+                        btn.classList.add('opacity-50', 'cursor-not-allowed');
+                        btn.disabled = true;
+                    } else {
+                        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                        btn.disabled = false;
+                    }
+                } else {
+                    btn.classList.add('hidden');
+                }
+
+                if (data.status === 'playing' && data.board) {
+                    loadOnlineGame(data);
+                }
+            });
+        }
+
+        window.startOnlineGame = async () => {
+            const roomRef = getRoomRef(onlineState.roomId);
+            const snap = await getDoc(roomRef);
+            const data = snap.data();
+            const playerCount = data.players.length;
+            if (playerCount < 2) return;
+
+            const wallCount = playerCount === 2 ? 10 : 5;
+            const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
+            const boardPlayers = [];
+
+            const configs = [
+                {x:4, y:8, c:colors[0]}, // P1 (Bot)
+                {x:0, y:4, c:colors[1]}, // P2 (Left)
+                {x:4, y:0, c:colors[2]}, // P3 (Top)
+                {x:8, y:4, c:colors[3]}  // P4 (Right)
+            ];
+            
+            // For 2 Players, P2 is Top (Index 2 in 4p, but here we map to index 1 of array)
+            if (playerCount === 2) {
+                configs[1] = {x:4, y:0, c:colors[2]}; // Override P2 slot with Top pos
+            }
+
+            for(let i=0; i<playerCount; i++) {
+                boardPlayers.push({
+                    x: configs[i].x, y: configs[i].y,
+                    walls: wallCount, color: configs[i].c,
+                    id: i, 
+                    uid: data.players[i].uid,
+                    name: data.players[i].name,
+                    avatar: data.players[i].avatar
+                });
+            }
+
+            const initialBoard = {
+                players: boardPlayers,
+                walls: [],
+                turn: 0,
+                winner: null
+            };
+
+            await updateDoc(roomRef, {
+                status: 'playing',
+                board: initialBoard
+            });
+        };
+        
+        function loadOnlineGame(roomData) {
+            gameState.players = roomData.board.players.map(p => ({
+                ...p,
+                goalCheck: getGoalCheck(p.id, roomData.board.players.length)
+            }));
+            gameState.walls = roomData.board.walls;
+            gameState.turn = roomData.board.turn;
+            gameState.mode = 'online';
+            gameState.config.playerCount = gameState.players.length;
+            gameState.config.device = isMobile() ? 'mobile' : 'pc'; 
+            onlineState.myIndex = gameState.players.findIndex(p => p.uid === user.uid);
+            
+            showScreen('gameContainer');
+            document.getElementById('roomBadge').classList.remove('hidden');
+            document.getElementById('gameRoomId').textContent = onlineState.roomId;
+            
+            resizeCanvas();
+            createStatsUI();
+            updateUI();
+            draw();
+        }
+
+        window.leaveRoom = () => {
+            if (onlineState.unsubscribe) onlineState.unsubscribe();
+            location.reload();
+        };
+        
+        window.copyRoomId = () => {
+            navigator.clipboard.writeText(onlineState.roomId);
+            alert("ルームIDをコピーしました: " + onlineState.roomId);
+        };
+
+
+        // --- Game Logic ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const ghostEl = document.getElementById('dragGhost');
+        let rect = canvas.getBoundingClientRect();
+        
+        const CELL_SIZE = 50, GAP_SIZE = 10, BOARD_SIZE = 9, OFFSET = 10;
+        const WALL_LENGTH = 2 * CELL_SIZE + GAP_SIZE;
+
+        let mouseX = 0, mouseY = 0;
+        let wallOrientation = 'H';
+        let isDragging = false;
+        let dragType = 'H';
+
+        function isMobile() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+
+        window.startOfflineGame = () => {
+            gameState.mode = 'offline';
+            const cnt = gameState.config.playerCount;
+            const wallCount = cnt === 2 ? 10 : 5;
+            const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
+
+            gameState.players = [];
+            
+            // P1
+            gameState.players.push({ 
+                x: 4, y: 8, walls: wallCount, color: colors[0], id: 0, 
+                goalCheck: (x,y)=>y===0, 
+                name: "P1", avatar: "🐶" 
+            });
+
+            if (cnt === 2) {
+                // P2 (Top)
+                gameState.players.push({ 
+                    x: 4, y: 0, walls: wallCount, color: colors[2], id: 1, 
+                    goalCheck: (x,y)=>y===8, 
+                    name: "P2", avatar: "🐱" 
+                });
+            } else {
+                // 4 Players
+                gameState.players.push({ x: 0, y: 4, walls: wallCount, color: colors[1], id: 1, goalCheck: (x,y)=>x===8, name: "P2", avatar: "🐱" });
+                gameState.players.push({ x: 4, y: 0, walls: wallCount, color: colors[2], id: 2, goalCheck: (x,y)=>y===8, name: "P3", avatar: "🐰" });
+                gameState.players.push({ x: 8, y: 4, walls: wallCount, color: colors[3], id: 3, goalCheck: (x,y)=>x===0, name: "P4", avatar: "🦊" });
+            }
+
+            gameState.walls = [];
+            gameState.turn = 0;
+            gameState.winner = null;
+
+            showScreen('gameContainer');
+            if(gameState.config.device === 'mobile') {
+                document.body.classList.add('mobile-mode');
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+            }
+            
+            createStatsUI();
+            updateUI();
+            draw();
+        };
+
+        function getGoalCheck(id, totalPlayers) {
+            if (totalPlayers === 2) {
+                return id === 0 ? (x,y)=>y===0 : (x,y)=>y===8;
+            } else {
+                if(id===0) return (x,y)=>y===0;
+                if(id===1) return (x,y)=>x===8;
+                if(id===2) return (x,y)=>y===8;
+                if(id===3) return (x,y)=>x===0;
+            }
+            return ()=>false;
+        }
+
+        function canMoveTo(pIndex, tx, ty) {
+            const p = gameState.players[pIndex];
+            if (tx < 0 || tx >= BOARD_SIZE || ty < 0 || ty >= BOARD_SIZE) return false;
+            if (gameState.players.some(pl => pl.x === tx && pl.y === ty)) return false;
+
+            const dx = tx - p.x;
+            const dy = ty - p.y;
+            const dist = Math.abs(dx) + Math.abs(dy);
+
+            if (dist === 1) {
+                return !isWallBlocking(p.x, p.y, tx, ty);
+            }
+
+            if (dist === 2 && (dx === 0 || dy === 0)) {
+                const midX = p.x + dx/2;
+                const midY = p.y + dy/2;
+                const neighbor = gameState.players.find(pl => pl.x === midX && pl.y === midY);
+                if (neighbor) {
+                    if (!isWallBlocking(p.x, p.y, midX, midY) && !isWallBlocking(midX, midY, tx, ty)) {
+                        return true;
+                    }
+                }
+            }
+            
+            if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
+                const n1 = gameState.players.find(pl => pl.x === p.x && pl.y === ty); 
+                const n2 = gameState.players.find(pl => pl.x === tx && pl.y === p.y); 
+                
+                if (n1) {
+                     if (!isWallBlocking(p.x, p.y, n1.x, n1.y)) {
+                         const jx = n1.x;
+                         const jy = n1.y + (n1.y - p.y);
+                         const isStraightBlocked = 
+                            jy < 0 || jy >= BOARD_SIZE || 
+                            isWallBlocking(n1.x, n1.y, jx, jy) || 
+                            gameState.players.some(pl => pl.x === jx && pl.y === jy);
+                         
+                         if (isStraightBlocked && !isWallBlocking(n1.x, n1.y, tx, ty)) return true;
+                     }
+                }
+
+                if (n2) {
+                    if (!isWallBlocking(p.x, p.y, n2.x, n2.y)) {
+                        const jx = n2.x + (n2.x - p.x);
+                        const jy = n2.y;
+                        const isStraightBlocked = 
+                           jx < 0 || jx >= BOARD_SIZE || 
+                           isWallBlocking(n2.x, n2.y, jx, jy) || 
+                           gameState.players.some(pl => pl.x === jx && pl.y === jy);
+                        
+                        if (isStraightBlocked && !isWallBlocking(n2.x, n2.y, tx, ty)) return true;
+                    }
+                }
+            }
+            
+            return false;
+        }
+
+        function isWallBlocking(x1, y1, x2, y2) {
+            const walls = gameState.walls;
+            if (x1 === x2) {
+                const wy = Math.min(y1, y2);
+                return walls.some(w => w.type === 'H' && w.y === wy && (w.x === x1 || w.x === x1 - 1));
+            } else {
+                const wx = Math.min(x1, x2);
+                return walls.some(w => w.type === 'V' && w.x === wx && (w.y === y1 || w.y === y1 - 1));
+            }
+        }
+
+        function isValidWall(wx, wy, type) {
+            if (wx < 0 || wx > 7 || wy < 0 || wy > 7) return false;
+            const walls = gameState.walls;
+            if (walls.some(w => w.x === wx && w.y === wy)) return false;
+            if (type === 'H') {
+                if (walls.some(w => w.type === 'H' && w.y === wy && Math.abs(w.x - wx) === 1)) return false;
+            } else {
+                if (walls.some(w => w.type === 'V' && w.x === wx && Math.abs(w.y - wy) === 1)) return false;
+            }
+            
+            gameState.walls.push({x: wx, y: wy, type});
+            const safe = gameState.players.every(p => hasPathToGoal(p));
+            gameState.walls.pop();
+            return safe;
+        }
+
+        function hasPathToGoal(player) {
+            const queue = [{x: player.x, y: player.y}];
+            const visited = new Set([`${player.x},${player.y}`]);
+            while (queue.length) {
+                const {x, y} = queue.shift();
+                if (player.goalCheck(x, y)) return true;
+                [[0,-1],[0,1],[-1,0],[1,0]].forEach(([dx, dy]) => {
+                    const nx = x + dx, ny = y + dy;
+                    if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE) {
+                        if (!isWallBlocking(x, y, nx, ny) && !visited.has(`${nx},${ny}`)) {
+                            visited.add(`${nx},${ny}`);
+                            queue.push({x: nx, y: ny});
+                        }
+                    }
+                });
+            }
+            return false;
+        }
+
+        // --- Interaction ---
+        async function executeAction(action, data) {
+            if (action === 'move') {
+                gameState.players[gameState.turn].x = data.x;
+                gameState.players[gameState.turn].y = data.y;
+            } else if (action === 'wall') {
+                gameState.walls.push({x: data.x, y: data.y, type: data.type});
+                gameState.players[gameState.turn].walls--;
+            }
+
+            const p = gameState.players[gameState.turn];
+            if (p.goalCheck(p.x, p.y)) {
+                gameState.winner = p.id;
+                handleWin(p);
+                if(gameState.mode === 'online') await syncBoard();
+                return;
+            }
+
+            gameState.turn = (gameState.turn + 1) % gameState.players.length;
+            updateUI();
+            draw();
+
+            if (gameState.mode === 'online') await syncBoard();
+        }
+
+        async function syncBoard() {
+             const safePlayers = gameState.players.map(p => ({
+                 x: p.x, y: p.y, walls: p.walls, color: p.color, id: p.id, uid: p.uid || null,
+                 name: p.name || 'P'+(p.id+1), avatar: p.avatar || '👤'
+             }));
+             await updateDoc(getRoomRef(onlineState.roomId), {
+                 'board.players': safePlayers,
+                 'board.walls': gameState.walls,
+                 'board.turn': gameState.turn,
+                 'board.winner': gameState.winner
+             });
+        }
+
+        function handleInteraction(e) {
+            if (gameState.winner) return;
+            if (gameState.mode === 'online' && gameState.turn !== onlineState.myIndex) return;
+
+            const pos = getMousePos(e);
+            const { gridX, gridY, wallX, wallY } = toGrid(pos.x, pos.y);
+            
+            if (gameState.config.device === 'pc') {
+                if (e.type === 'mousemove') {
+                    mouseX = pos.x; mouseY = pos.y;
+                    draw(); return;
+                }
+                if (e.type === 'contextmenu') {
+                    e.preventDefault();
+                    wallOrientation = wallOrientation === 'H' ? 'V' : 'H';
+                    draw(); return;
+                }
+                if (e.type === 'click') {
+                    const cx = OFFSET + (wallX * (CELL_SIZE + GAP_SIZE)) + CELL_SIZE + GAP_SIZE/2;
+                    const cy = OFFSET + (wallY * (CELL_SIZE + GAP_SIZE)) + CELL_SIZE + GAP_SIZE/2;
+                    const dist = Math.sqrt((pos.x-cx)**2 + (pos.y-cy)**2);
+                    
+                    if (dist < 20) {
+                        if (gameState.players[gameState.turn].walls > 0 && isValidWall(wallX, wallY, wallOrientation)) {
+                            executeAction('wall', {x: wallX, y: wallY, type: wallOrientation});
+                        }
+                    } else {
+                        if (canMoveTo(gameState.turn, gridX, gridY)) {
+                            executeAction('move', {x: gridX, y: gridY});
+                        }
+                    }
+                }
+            } 
+            else if (gameState.config.device === 'mobile') {
+                if ((e.type === 'click' || e.type === 'touchstart') && !isDragging) {
+                    if(e.type === 'touchstart') e.preventDefault(); 
+                    if (canMoveTo(gameState.turn, gridX, gridY)) {
+                        executeAction('move', {x: gridX, y: gridY});
+                    }
+                }
+            }
+        }
+
+        window.startDragWall = (e, type) => {
+            if (gameState.winner) return;
+            if (gameState.mode === 'online' && gameState.turn !== onlineState.myIndex) return;
+            if (gameState.players[gameState.turn].walls <= 0) return;
+
+            e.preventDefault();
+            isDragging = true;
+            dragType = type;
+            
+            ghostEl.style.display = 'block';
+            ghostEl.style.width = type === 'H' ? '100px' : '10px';
+            ghostEl.style.height = type === 'H' ? '10px' : '100px';
+            updateDragPosition(e.touches ? e.touches[0] : e);
+            
+            const end = (evt) => {
+                document.removeEventListener('touchmove', move);
+                document.removeEventListener('touchend', end);
+                document.removeEventListener('mousemove', move);
+                document.removeEventListener('mouseup', end);
+                handleDragEnd(evt);
+            };
+            const move = (evt) => {
+                if(!isDragging) return;
+                evt.preventDefault();
+                const p = evt.touches ? evt.touches[0] : evt;
+                updateDragPosition(p);
+                const cPos = getMousePos(evt);
+                mouseX = cPos.x; mouseY = cPos.y;
+                draw();
+            };
+            document.addEventListener('touchmove', move, {passive: false});
+            document.addEventListener('touchend', end);
+            document.addEventListener('mousemove', move);
+            document.addEventListener('mouseup', end);
+        };
+        
+        function updateDragPosition(p) {
+            ghostEl.style.left = p.clientX + 'px';
+            ghostEl.style.top = p.clientY + 'px';
+            ghostEl.style.transform = 'translate(-50%, -50%)';
+        }
+
+        function handleDragEnd(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            ghostEl.style.display = 'none';
+            const { wallX, wallY } = toGrid(mouseX, mouseY);
+            if (mouseX > 0 && mouseX < canvas.width && mouseY > 0 && mouseY < canvas.height) {
+                 if (isValidWall(wallX, wallY, dragType)) {
+                     executeAction('wall', {x: wallX, y: wallY, type: dragType});
+                 }
+            }
+            draw();
+        }
+
+        function getMousePos(evt) {
+            rect = canvas.getBoundingClientRect();
+            let cx, cy;
+            if (evt.changedTouches && evt.changedTouches.length > 0) {
+                 cx = evt.changedTouches[0].clientX;
+                 cy = evt.changedTouches[0].clientY;
+            } else if (evt.touches && evt.touches.length > 0) {
+                 cx = evt.touches[0].clientX;
+                 cy = evt.touches[0].clientY;
+            } else {
+                 cx = evt.clientX;
+                 cy = evt.clientY;
+            }
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return { x: (cx - rect.left) * scaleX, y: (cy - rect.top) * scaleY };
+        }
+
+        function toGrid(px, py) {
+            const wallX = Math.round((px - OFFSET - CELL_SIZE) / (CELL_SIZE + GAP_SIZE));
+            const wallY = Math.round((py - OFFSET - CELL_SIZE) / (CELL_SIZE + GAP_SIZE));
+            const gridX = Math.floor((px - OFFSET) / (CELL_SIZE + GAP_SIZE));
+            const gridY = Math.floor((py - OFFSET) / (CELL_SIZE + GAP_SIZE));
+            return { gridX, gridY, wallX, wallY };
+        }
+
+        function resizeCanvas() {
+            const maxWidth = Math.min(window.innerWidth - 20, 540);
+            const maxHeight = window.innerHeight - 150; 
+            const size = Math.min(maxWidth, maxHeight, 540);
+            canvas.style.width = `${size}px`;
+            canvas.style.height = `${size}px`;
+        }
+
+        function createStatsUI() {
+            const container = document.getElementById('statsBar');
+            container.innerHTML = gameState.players.map((p, i) => `
+                <div id="stat-p${i}" class="player-stat ${gameState.mode==='online' && p.uid===user.uid ? 'me' : ''}">
+                    <div class="avatar-display">${p.avatar || '👤'}</div>
+                    <span>${p.name.length > 5 ? p.name.substring(0,4)+'..' : p.name}</span>
+                    <div class="flex gap-1 items-center bg-gray-200 px-2 rounded-full ml-1">
+                        <div class="wall-dot"></div>
+                        <span id="wall-count-p${i}" class="text-xs font-bold">${p.walls}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateUI() {
+            gameState.players.forEach((p, i) => {
+                const el = document.getElementById(`stat-p${i}`);
+                const cEl = document.getElementById(`wall-count-p${i}`);
+                if(el && cEl) {
+                    cEl.textContent = p.walls;
+                    if(i === gameState.turn) {
+                        el.classList.add('active');
+                        el.style.borderColor = p.color;
+                    } else {
+                        el.classList.remove('active');
+                        el.style.borderColor = 'transparent';
+                    }
+                }
+            });
+
+            const msg = document.getElementById('turnMessage');
+            if (gameState.mode === 'online') {
+                if (gameState.turn === onlineState.myIndex) {
+                    msg.textContent = "あなたの番です";
+                    msg.style.backgroundColor = "#e0e7ff";
+                    msg.style.color = "#4f46e5";
+                } else {
+                    const pName = gameState.players[gameState.turn].name;
+                    msg.textContent = `${pName} の番です`;
+                    msg.style.backgroundColor = "#f3f4f6";
+                    msg.style.color = "#6b7280";
+                }
+            } else {
+                 msg.textContent = `${gameState.players[gameState.turn].name} の番です`;
+            }
+
+            const isMyTurn = gameState.mode === 'offline' || (gameState.mode === 'online' && gameState.turn === onlineState.myIndex);
+            const canDrag = isMyTurn && gameState.players[gameState.turn].walls > 0;
+            const vSrc = document.getElementById('drag-v');
+            const hSrc = document.getElementById('drag-h');
+            
+            if(canDrag) {
+                vSrc.classList.remove('disabled');
+                hSrc.classList.remove('disabled');
+            } else {
+                vSrc.classList.add('disabled');
+                hSrc.classList.add('disabled');
+            }
+        }
+
+        function handleWin(player) {
+            const isMe = gameState.mode === 'online' && player.uid === user.uid;
+            document.getElementById('winnerText').textContent = isMe ? "You Win!" : `${player.name} Wins!`;
+            document.getElementById('winOverlay').classList.remove('hidden');
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Cells
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                for (let x = 0; x < BOARD_SIZE; x++) {
+                    const px = OFFSET + x * (CELL_SIZE + GAP_SIZE);
+                    const py = OFFSET + y * (CELL_SIZE + GAP_SIZE);
+                    ctx.fillStyle = '#dcb';
+                    
+                    const isMyTurn = gameState.mode === 'offline' || (gameState.mode === 'online' && gameState.turn === onlineState.myIndex);
+                    if (!gameState.winner && isMyTurn && canMoveTo(gameState.turn, x, y)) {
+                        ctx.fillStyle = '#bbf7d0';
+                        if (gameState.config.device === 'pc') {
+                           const m = toGrid(mouseX, mouseY);
+                           if (m.gridX === x && m.gridY === y) ctx.fillStyle = '#86efac';
+                        }
+                    }
+                    ctx.beginPath();
+                    ctx.roundRect(px, py, CELL_SIZE, CELL_SIZE, 6);
+                    ctx.fill();
+                }
+            }
+
+            // Walls
+            ctx.fillStyle = '#855e42';
+            gameState.walls.forEach(w => {
+                const wx = OFFSET + w.x * (CELL_SIZE + GAP_SIZE) + CELL_SIZE;
+                const wy = OFFSET + w.y * (CELL_SIZE + GAP_SIZE) + CELL_SIZE;
+                if (w.type === 'H') ctx.fillRect(wx - CELL_SIZE, wy, WALL_LENGTH, GAP_SIZE);
+                else ctx.fillRect(wx, wy - CELL_SIZE, GAP_SIZE, WALL_LENGTH);
+            });
+
+            // Ghost Wall
+            const isMyTurn = gameState.mode === 'offline' || (gameState.mode === 'online' && gameState.turn === onlineState.myIndex);
+            if (!gameState.winner && isMyTurn && gameState.players[gameState.turn].walls > 0) {
+                let show = false, gType = wallOrientation;
+                const { wallX, wallY } = toGrid(mouseX, mouseY);
+                if (gameState.config.device === 'pc') {
+                     const cx = OFFSET + (wallX * (CELL_SIZE + GAP_SIZE)) + CELL_SIZE + GAP_SIZE/2;
+                     const cy = OFFSET + (wallY * (CELL_SIZE + GAP_SIZE)) + CELL_SIZE + GAP_SIZE/2;
+                     if (Math.sqrt((mouseX-cx)**2 + (mouseY-cy)**2) < 25) show = true;
+                } else if (isDragging) {
+                    show = true; gType = dragType;
+                }
+                if (show) {
+                    const wx = OFFSET + wallX * (CELL_SIZE + GAP_SIZE) + CELL_SIZE;
+                    const wy = OFFSET + wallY * (CELL_SIZE + GAP_SIZE) + CELL_SIZE;
+                    const valid = isValidWall(wallX, wallY, gType);
+                    ctx.fillStyle = valid ? 'rgba(133, 94, 66, 0.5)' : 'rgba(255, 0, 0, 0.3)';
+                    if (gType === 'H') ctx.fillRect(wx - CELL_SIZE, wy, WALL_LENGTH, GAP_SIZE);
+                    else ctx.fillRect(wx, wy - CELL_SIZE, GAP_SIZE, WALL_LENGTH);
+                }
+            }
+
+            // Players
+            gameState.players.forEach((p, i) => {
+                const px = OFFSET + p.x * (CELL_SIZE + GAP_SIZE) + CELL_SIZE / 2;
+                const py = OFFSET + p.y * (CELL_SIZE + GAP_SIZE) + CELL_SIZE / 2;
+                
+                // Body
+                ctx.beginPath();
+                ctx.arc(px, py, CELL_SIZE / 2 - 8, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+
+                // Avatar Emoji
+                ctx.fillStyle = 'white';
+                ctx.font = '24px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(p.avatar || '👤', px, py + 2);
+
+                if (i === gameState.turn && !gameState.winner) {
+                    ctx.strokeStyle = 'white';
+                    ctx.lineWidth = 4;
+                    ctx.stroke();
+                }
+            });
+
+            // Goal Indicators
+            const fullW = (CELL_SIZE+GAP_SIZE)*9 - GAP_SIZE;
+            gameState.players.forEach(p => {
+                ctx.fillStyle = p.color;
+                if(p.goalCheck(4,0)) ctx.fillRect(OFFSET, 0, fullW, 6); 
+                if(p.goalCheck(8,4)) ctx.fillRect(canvas.width - 6, OFFSET, 6, fullW);
+                if(p.goalCheck(4,8)) ctx.fillRect(OFFSET, canvas.height - 6, fullW, 6);
+                if(p.goalCheck(0,4)) ctx.fillRect(0, OFFSET, 6, fullW);
+            });
+        }
+
+        // Listeners
+        canvas.addEventListener('click', handleInteraction);
+        canvas.addEventListener('mousemove', handleInteraction);
+        canvas.addEventListener('contextmenu', handleInteraction);
+        canvas.addEventListener('touchstart', handleInteraction, {passive: false});
+
+        // Resize on load
+        setTimeout(resizeCanvas, 100);
+        window.addEventListener('resize', resizeCanvas);
+
+    </script>
+</body>
+</html>

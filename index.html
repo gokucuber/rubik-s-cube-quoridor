@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#2c3e50">
+    
+    <!-- PWA / Mobile Web App Capability -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Rubiks Cube">
+    
+    <!-- Embedded Manifest for PWA (Base64 Encoded) -->
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIlJ1YmlrJ3MgQ3ViZSIsCiAgInNob3J0X25hbWUiOiAiQ3ViZSIsCiAgInN0YXJ0X3VybCI6ICIuIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAiYmFja2dyb3VuZF9jb2xvciI6ICIjMmMzZTUwIiwKICAidGhlbWVfY29sb3IiOiAiIzJjM2U1MCIKfQ==">
+
+    <!-- App Icon (Emoji as SVG) -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧊</text></svg>">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%232c3e50%22/><text x=%2250%25%22 y=%2255%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-size=%2280%22>🧊</text></svg>">
+    
+    <title>Rubik's Cube</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #2c3e50; touch-action: none; user-select: none; font-family: 'Segoe UI', sans-serif; -webkit-tap-highlight-color: transparent; }
+        
+        /* スマホのアドレスバー対策 + Safe Area 対応 */
+        #app-container { 
+            display: flex; flex-direction: column; 
+            height: 100vh; height: 100dvh; width: 100vw; 
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        /* Header Fixed Layout */
+        #stats-header {
+            flex: 0 0 auto;
+            width: 100%; 
+            padding: 8px 12px;
+            padding-top: max(10px, env(safe-area-inset-top));
+            display: flex; 
+            flex-direction: column; 
+            background-color: #2c3e50;
+            z-index: 10;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            gap: 8px; 
+        }
+
+        /* Header Rows */
+        .header-line {
+            display: flex;
+            width: 100%;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-group { display: flex; gap: 8px; align-items: center; flex-shrink: 0; } 
+        .stat-box { color: white; text-align: center; min-width: 30px; }
+        .stat-label { font-size: 0.6rem; opacity: 0.7; font-weight: bold; letter-spacing: 1px; display: block; }
+        .stat-value { font-size: 0.9rem; font-weight: 700; font-family: monospace; line-height: 1; }
+
+        /* Timer Group */
+        #timer-container { text-align: right; display: flex; align-items: baseline; gap: 8px; margin-left: auto; }
+        .timer-label { font-size: 0.7rem; color: #e74c3c; font-weight: bold; }
+        #timer { 
+            font-size: 1.8rem; 
+            font-weight: 800; color: #ecf0f1; font-family: monospace; line-height: 1; 
+        }
+
+        #btn-history {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white;
+            padding: 6px 12px; border-radius: 15px; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px;
+        }
+
+        .btn-icon { 
+            font-size: 1rem; background: #e67e22; color: white; border: none; border-radius: 50%;
+            width: 36px; height: 36px; display: flex; justify-content: center; align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3); cursor: pointer; 
+            transition: transform 0.1s; flex-shrink: 0;
+        }
+        .btn-icon:active { transform: scale(0.9); }
+        #btn-reset { background: #c0392b; }
+        #btn-tools { background: #3498db; }
+        #btn-sound { background: #9b59b6; } 
+
+        /* Mobile Specific Adjustments */
+        @media (max-width: 380px) {
+            .stat-group { gap: 4px; }
+            .stat-box { min-width: 28px; }
+            .stat-value { font-size: 0.8rem; }
+            .btn-icon { width: 28px; height: 28px; font-size: 0.8rem; }
+            #timer { font-size: 1.4rem; }
+        }
+
+        /* Canvas */
+        #canvas-wrapper {
+            flex: 1; 
+            position: relative;
+            background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
+            overflow: hidden; min-height: 0; 
+        }
+        #canvas-container { width: 100%; height: 100%; }
+
+        /* Controls */
+        #control-panel {
+            flex: 0 0 auto; 
+            height: auto; 
+            min-height: 180px;
+            max-height: 60vh;
+            background-color: #95a5a6;
+            padding: 8px;
+            padding-top: 0; 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 -4px 15px rgba(0,0,0,0.3);
+            position: relative;
+            z-index: 20;
+            gap: 6px; 
+        }
+        
+        /* Resize Handle */
+        #resize-handle {
+            width: 100%;
+            height: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: ns-resize;
+            touch-action: none;
+            background: #95a5a6;
+            border-top: 3px solid #7f8c8d;
+            margin-bottom: 4px;
+        }
+        #resize-handle::after {
+            content: "";
+            width: 40px;
+            height: 4px;
+            background: #bdc3c7;
+            border-radius: 2px;
+        }
+
+        .panel-row { display: flex; width: 100%; max-width: 600px; justify-content: space-between; gap: 6px; flex: 1; }
+        
+        .panel-btn {
+            background: #bdc3c7; border: 1px solid #7f8c8d; border-radius: 10px; color: #2c3e50; font-weight: bold; 
+            font-size: 1.5rem; 
+            display: flex; justify-content: center; align-items: center; cursor: pointer; box-shadow: 0 4px 0 #7f8c8d;
+            transition: transform 0.05s, box-shadow 0.05s, background 0.05s; user-select: none; touch-action: none; flex: 1;
+            height: 100%; 
+        }
+        .panel-btn:active { box-shadow: 0 1px 0 #7f8c8d; transform: translateY(3px); background: #d0d3d4; }
+        .panel-btn-label { pointer-events: none; }
+
+        .btn-narrow { flex: 0.8; } .btn-wide { flex: 2; } .btn-split { flex: 1; } 
+        .btn-mid { flex: 0.7; background: #aab7b8; font-size: 1.2rem; }
+        .btn-F { background: #ecf0f1; border-color: #95a5a6; }
+        .btn-side { background: #aab7b8; }
+        .btn-wide-rot { background: #95a5a6; color: #2c3e50; font-size: 1.2rem; }
+
+        /* Modals */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 100; display: none; justify-content: center; align-items: center;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
+        .modal-overlay.active { display: flex; opacity: 1; pointer-events: auto; }
+        .modal-content {
+            background: #ecf0f1; width: 95%; max-width: 500px; max-height: 80vh;
+            border-radius: 15px; padding: 20px; overflow-y: auto; color: #2c3e50;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 15px;
+        }
+        .modal-title { font-size: 1.4rem; font-weight: bold; border-bottom: 2px solid #bdc3c7; padding-bottom: 10px; }
+        .close-btn { padding: 10px 30px; background: #e74c3c; color: white; border: none; border-radius: 25px; font-weight: bold; cursor: pointer; align-self: center; }
+
+        /* History & Tools */
+        .history-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .history-table th { text-align: left; color: #7f8c8d; padding: 5px; font-size: 0.75rem; }
+        .history-table td { padding: 6px 4px; border-bottom: 1px solid #bdc3c7; vertical-align: top; }
+        .scramble-text { font-family: monospace; color: #555; font-size: 0.75rem; word-break: break-all; }
+        
+        .tool-section { margin-bottom: 15px; border-bottom: 1px solid #bdc3c7; padding-bottom: 15px; }
+        .tool-section:last-child { border-bottom: none; }
+        .tool-label { font-weight: bold; margin-bottom: 5px; color: #2c3e50; display: block; font-size: 0.9rem;}
+        .algo-input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #bdc3c7; font-family: monospace; font-size: 1rem; resize: vertical; min-height: 40px; }
+        .tool-btn { padding: 8px 12px; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; color: white; display: inline-block; font-size: 0.85rem; margin-right: 4px; margin-bottom: 4px; }
+        .btn-apply { background: #27ae60; width: 100%; margin-top: 5px; }
+        .btn-save { background: #2980b9; }
+        .btn-setup { background: #e67e22; width:100%; margin-top:5px;}
+        .btn-edit { background: #f39c12; }
+        .btn-delete { background: #c0392b; }
+        .btn-random-train { background: #8e44ad; width: 100%; margin-top: 5px; }
+
+        .saved-algo-item { background: white; border-radius: 8px; padding: 10px; margin-bottom: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .algo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .algo-name { font-weight: bold; color: #2c3e50; font-size: 0.9rem; }
+        .algo-seq { font-family: monospace; font-size: 0.8rem; color: #555; word-break: break-all; background: #f7f9fa; padding: 4px; border-radius: 4px; margin-bottom: 5px;}
+
+        /* Result Popup */
+        #result-popup { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 150; display: none; justify-content: center; align-items: center; flex-direction: column; opacity: 0; transition: opacity 0.3s; backdrop-filter: blur(5px); }
+        #result-popup.active { display: flex; opacity: 1; }
+        .result-box { background: #ecf0f1; padding: 30px; border-radius: 20px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.6); max-width: 90%; width: 320px; }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <!-- Header -->
+    <div id="stats-header">
+        <!-- 1行目 -->
+        <div class="header-line">
+            <div class="stat-group">
+                <div class="stat-box"><span class="stat-label">AO5</span><span class="stat-value" id="display-ao5">-.-</span></div>
+                <div class="stat-box"><span class="stat-label">AO100</span><span class="stat-value" id="display-ao100">-.-</span></div>
+            </div>
+            <div class="stat-group">
+                <button class="btn-icon" id="btn-shuffle" title="Instant Scramble">🔄</button>
+                <button class="btn-icon" id="btn-reset" title="Reset Cube">🗑️</button>
+                <button class="btn-icon" id="btn-tools" title="Tools">🛠️</button>
+                <button class="btn-icon" id="btn-sound" title="Sound Toggle">🔇</button>
+            </div>
+        </div>
+        
+        <!-- 2行目 -->
+        <div class="header-line">
+            <button id="btn-history">📊 記録</button>
+            <div id="timer-container">
+                <span class="timer-label">TIME</span>
+                <span id="timer">0.00</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Canvas -->
+    <div id="canvas-wrapper">
+        <div id="canvas-container"></div>
+    </div>
+
+    <!-- Controls -->
+    <div id="control-panel" style="height: 35vh;"> <!-- 初期高さ -->
+        <div id="resize-handle"></div>
+        <!-- Row 1 -->
+        <div class="panel-row">
+            <div class="panel-btn btn-narrow btn-side" data-face="B-L"><span class="panel-btn-label">B</span></div>
+            <div class="panel-btn btn-wide btn-U" data-face="U"><span class="panel-btn-label">U</span></div>
+            <div class="panel-btn btn-narrow btn-side" data-face="B-R"><span class="panel-btn-label">B</span></div>
+        </div>
+        <!-- Row 2 -->
+        <div class="panel-row" style="flex: 1.3;">
+            <div class="panel-btn btn-split btn-L" data-face="L"><span class="panel-btn-label">L</span></div>
+            <div class="panel-btn btn-split btn-F" data-face="F-L"><span class="panel-btn-label">F</span></div>
+            <div class="panel-btn btn-mid btn-side" data-face="M"><span class="panel-btn-label">M</span></div>
+            <div class="panel-btn btn-split btn-F" data-face="F-R"><span class="panel-btn-label">F</span></div>
+            <div class="panel-btn btn-split btn-R" data-face="R"><span class="panel-btn-label">R</span></div>
+        </div>
+        <!-- Row 3 -->
+        <div class="panel-row">
+            <div class="panel-btn btn-narrow btn-wide-rot" data-face="Lw"><span class="panel-btn-label">Lw</span></div>
+            <div class="panel-btn btn-wide btn-D" data-face="D"><span class="panel-btn-label">D</span></div>
+            <div class="panel-btn btn-narrow btn-wide-rot" data-face="Rw"><span class="panel-btn-label">Rw</span></div>
+        </div>
+    </div>
+</div>
+
+<!-- Result Popup -->
+<div id="result-popup">
+    <div class="result-box">
+        <h2 style="font-size: 2rem; margin:0; color: #2c3e50; font-weight: bold;">SOLVED!</h2>
+        <div style="color: #f1c40f; font-weight: bold; font-size: 1.2rem; margin: 10px 0; display: none;" id="new-best-label">NEW BEST! 🏆</div>
+        <div style="font-size: 4rem; font-weight: 800; color: #27ae60; margin: 10px 0; font-family: monospace;" id="result-time">0.00</div>
+        <button style="margin-top: 20px; padding: 12px 30px; background: #e67e22; color: white; border: none; border-radius: 30px; font-weight: bold; font-size: 1.1rem; width: 100%; box-shadow: 0 4px 0 #d35400;" onclick="startNextRound()">🔄 次のスクランブル</button>
+    </div>
+</div>
+
+<!-- History Modal -->
+<div class="modal-overlay" id="history-modal">
+    <div class="modal-content">
+        <div class="modal-title">記録</div>
+        <div style="display: flex; justify-content: space-around; margin-bottom: 10px; background: #fff; padding: 10px; border-radius: 10px;">
+            <div style="display: flex; flex-direction: column;"><span style="font-size: 0.6rem; color: #7f8c8d;">BEST</span><span id="hist-best" style="font-size: 1rem; font-weight: bold; color: #2980b9;">-.-</span></div>
+            <div style="display: flex; flex-direction: column;"><span style="font-size: 0.6rem; color: #7f8c8d;">AO5</span><span id="hist-best-ao5" style="font-size: 1rem; font-weight: bold; color: #2980b9;">-.-</span></div>
+            <div style="display: flex; flex-direction: column;"><span style="font-size: 0.6rem; color: #7f8c8d;">AO100</span><span id="hist-best-ao100" style="font-size: 1rem; font-weight: bold; color: #2980b9;">-.-</span></div>
+        </div>
+        <div style="max-height: 400px; overflow-y: auto;">
+            <table class="history-table">
+                <thead><tr><th style="width:30px">#</th><th style="width:60px">Time</th><th>Scramble</th></tr></thead>
+                <tbody id="history-list"></tbody>
+            </table>
+        </div>
+        <button class="close-btn" id="close-history">閉じる</button>
+    </div>
+</div>
+
+<!-- Tools Modal -->
+<div class="modal-overlay" id="tools-modal">
+    <div class="modal-content">
+        <div class="modal-title">便利ツール 🛠️</div>
+        
+        <div class="tool-section">
+            <label class="tool-label">📝 手順の保存・練習</label>
+            <p style="font-size:0.75rem; color:#7f8c8d; margin-bottom:5px;">例: R U R' U' (スペースなし可)</p>
+            <input type="hidden" id="edit-id" value="">
+            <input type="text" id="algo-name" class="algo-input" placeholder="名前 (例: T-Perm)" style="margin-bottom: 5px; height: 40px;">
+            <textarea id="custom-algo-input" class="algo-input" placeholder="回転記号..."></textarea>
+            <div style="display:flex; gap:5px; margin-top:5px;">
+                <button class="tool-btn btn-save" style="flex:1;" onclick="saveCustomAlgo()">💾 保存 / 更新</button>
+                <button class="tool-btn btn-apply" style="flex:1;" onclick="runInputAlgo()">▶ 今すぐ再生</button>
+            </div>
+        </div>
+        
+        <div class="tool-section">
+             <label class="tool-label">🎲 ランダム・トレーニング</label>
+             <button class="tool-btn btn-random-train" onclick="runRandomSetup()">保存リストからランダム出題 (セットアップ)</button>
+        </div>
+
+        <div class="tool-section">
+            <label class="tool-label">保存した手順リスト</label>
+            <div id="saved-algo-list" style="max-height: 200px; overflow-y: auto;">
+                <div style="color:#888; font-size:0.8rem; text-align:center;">保存された手順はありません</div>
+            </div>
+        </div>
+
+        <button class="close-btn" id="close-tools">閉じる</button>
+    </div>
+</div>
+
+<script>
+// NOTE: Standalone Version - No Service Worker
+
+// ---- Constants & State ----
+let solveHistory = JSON.parse(localStorage.getItem('rubiks_history')) || [];
+let customAlgos = JSON.parse(localStorage.getItem('rubiks_custom_algos')) || [];
+let isSolving = false;
+let isScrambled = false;
+let isLockedSolved = false; 
+let startTime = 0;
+let timerInterval = null;
+let isShuffling = false;
+let currentScramble = "";
+let isSoundOn = false; // Sound state
+
+// Design: Hollow Shell Construction (Plates only)
+const TILE_SIZE = 0.82; 
+const TILE_THICKNESS = 0.25; 
+const SPACING = 1.05;
+
+// Colors
+const COLORS = { 
+    R: 0xe74c3c, L: 0xff6b21, U: 0xf5f6fa, D: 0xf1c40f, F: 0x2ecc71, B: 0x3498db
+};
+
+const FACES = {
+    'R': { axis: 'x', val: 1 }, 'L': { axis: 'x', val: -1 }, 'M': { axis: 'x', val: 0 }, 
+    'U': { axis: 'y', val: 1 }, 'D': { axis: 'y', val: -1 },
+    'F': { axis: 'z', val: 1 }, 'B': { axis: 'z', val: -1 }
+};
+
+// ---- Sound Logic ----
+let audioCtx = null;
+
+// Frequencies for A3 to G#4
+const NOTE_FREQS = {
+    "A": 220.00,
+    "A#": 233.08,
+    "B": 246.94,
+    "C": 261.63,
+    "C#": 277.18,
+    "D": 293.66,
+    "D#": 311.13,
+    "E": 329.63,
+    "F": 349.23,
+    "F#": 369.99,
+    "G": 392.00,
+    "G#": 415.30
+};
+
+// Map moves to notes as requested
+const MOVE_TO_NOTE = {
+    "R": "A",
+    "R'": "A#",
+    "U": "B",
+    "U'": "C",
+    "D": "C#",
+    "D'": "D",
+    "F": "D#",
+    "F'": "E",
+    "B": "F",
+    "B'": "F#",
+    "L": "G",
+    "L'": "G#"
+};
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function playPianoNote(note) {
+    if (!isSoundOn || !audioCtx || !NOTE_FREQS[note]) return;
+    
+    // Resume context if needed
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const freq = NOTE_FREQS[note];
+    const t = audioCtx.currentTime;
+
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.type = 'triangle'; // Piano-ish basic wave
+    oscillator.frequency.value = freq;
+
+    // Envelope for piano-like decay
+    gainNode.gain.setValueAtTime(0, t);
+    gainNode.gain.linearRampToValueAtTime(0.6, t + 0.02); // Attack
+    gainNode.gain.exponentialRampToValueAtTime(0.01, t + 1.5); // Decay/Release
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start(t);
+    oscillator.stop(t + 1.5);
+}
+
+function toggleSound() {
+    isSoundOn = !isSoundOn;
+    const btn = document.getElementById('btn-sound');
+    btn.innerText = isSoundOn ? '🔊' : '🔇';
+    if (isSoundOn) initAudio();
+}
+
+// ---- Three.js Globals ----
+let scene, camera, renderer;
+let cubes = [];
+
+// ---- Helper Functions ----
+function saveTime(time, scramble) {
+    solveHistory.unshift({ time: parseFloat(time), scramble: scramble || "-", date: new Date().toLocaleString('ja-JP'), id: Date.now() });
+    localStorage.setItem('rubiks_history', JSON.stringify(solveHistory));
+    updateStatsDisplay();
+}
+function getBestTime() { if (solveHistory.length === 0) return null; return Math.min(...solveHistory.map(r => r.time)); }
+function calculateAO5(times) { if (times.length < 5) return null; const sub = times.slice(0, 5).sort((a,b)=>a-b).slice(1,4); return (sub.reduce((a,b)=>a+b,0)/3).toFixed(2); }
+function calculateAO100(times) { if (times.length < 100) return null; const sub = times.slice(0, 100).sort((a,b)=>a-b).slice(5, 95); return (sub.reduce((a,b)=>a+b,0)/90).toFixed(2); }
+
+function updateStatsDisplay() {
+    const allTimes = solveHistory.map(r=>r.time);
+    document.getElementById('display-ao5').innerText = calculateAO5(allTimes)||'-.-';
+    document.getElementById('display-ao100').innerText = calculateAO100(allTimes)||'-.-'; 
+    document.getElementById('hist-best').innerText = getBestTime()?.toFixed(2)||'-.-';
+    document.getElementById('hist-best-ao5').innerText = calculateAO5(allTimes)||'-.-'; 
+    document.getElementById('hist-best-ao100').innerText = calculateAO100(allTimes)||'-.-';
+    const tb = document.getElementById('history-list'); tb.innerHTML = '';
+    solveHistory.forEach((r,i)=>{ tb.innerHTML+=`<tr><td>${solveHistory.length-i}</td><td style="font-weight:bold;">${r.time.toFixed(2)}</td><td class="scramble-text">${r.scramble}</td></tr>`; });
+}
+
+// ---- Init & Main Logic ----
+init();
+animate();
+updateStatsDisplay();
+renderAlgoList();
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x2c3e50);
+
+    camera = new THREE.PerspectiveCamera(32, window.innerWidth / (window.innerHeight * 0.4), 0.1, 100);
+    camera.position.set(0, 4.2, 12.5); 
+    camera.lookAt(0, -0.2, 0);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const container = document.getElementById('canvas-container');
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    
+    container.appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); 
+    scene.add(ambientLight);
+    
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(10, 15, 10);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.bias = -0.0005;
+    scene.add(dirLight);
+    
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+    fillLight.position.set(-10, 5, 10);
+    scene.add(fillLight);
+    
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.2);
+    backLight.position.set(0, 5, -10);
+    scene.add(backLight);
+
+    createRubiksCube();
+    setupControls(); 
+    setupUI(); 
+    setupResizeHandle();
+    
+    setTimeout(adjustCamera, 100);
+    window.addEventListener('resize', onWindowResize);
+}
+
+function createRubiksCube() {
+    const plateGeo = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_THICKNESS);
+    const plateOffset = 0.45; 
+
+    for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+            for (let z = -1; z <= 1; z++) {
+                if(x===0 && y===0 && z===0) continue;
+
+                const cubieGroup = new THREE.Object3D();
+                cubieGroup.position.set(x * SPACING, y * SPACING, z * SPACING);
+                
+                if (x === 1) addShellPlate(cubieGroup, plateGeo, COLORS.R, 'y', Math.PI/2, plateOffset);
+                if (x === -1) addShellPlate(cubieGroup, plateGeo, COLORS.L, 'y', -Math.PI/2, plateOffset);
+                if (y === 1) addShellPlate(cubieGroup, plateGeo, COLORS.U, 'x', -Math.PI/2, plateOffset);
+                if (y === -1) addShellPlate(cubieGroup, plateGeo, COLORS.D, 'x', Math.PI/2, plateOffset);
+                if (z === 1) addShellPlate(cubieGroup, plateGeo, COLORS.F, 'z', 0, plateOffset);
+                if (z === -1) addShellPlate(cubieGroup, plateGeo, COLORS.B, 'y', Math.PI, plateOffset); 
+                
+                cubieGroup.isLocked = false; 
+                scene.add(cubieGroup);
+                cubes.push(cubieGroup);
+            }
+        }
+    }
+}
+
+function addShellPlate(parent, geometry, color, axis, angle, offset) {
+    const mat = new THREE.MeshStandardMaterial({ 
+        color: color, 
+        roughness: 0.9,
+        metalness: 0.0,
+        side: THREE.DoubleSide
+    });
+    const plate = new THREE.Mesh(geometry, mat);
+    plate.castShadow = true;
+    plate.receiveShadow = true;
+    
+    plate.position.set(0,0,0);
+    plate.rotation.set(0,0,0);
+
+    if (axis === 'y') plate.rotation.y = angle;
+    if (axis === 'x') plate.rotation.x = angle;
+    if (axis === 'z' && angle !== 0) plate.rotation.z = angle; 
+
+    const vec = new THREE.Vector3(0,0,offset); 
+    vec.applyEuler(plate.rotation);
+    plate.position.copy(vec);
+
+    plate.userData = { isPlate: true, color: color };
+    parent.add(plate);
+}
+
+// ---- Logic ----
+
+function performRotation(targetCubes, axis, angle, duration) {
+    const pivot = new THREE.Object3D();
+    scene.add(pivot); 
+    targetCubes.forEach(c => {
+        c.isLocked = true;
+        scene.remove(c);
+        pivot.add(c);
+    });
+
+    return new Promise(resolve => {
+        if (duration <= 0) {
+            if (axis === 'x') pivot.rotation.x += angle;
+            if (axis === 'y') pivot.rotation.y += angle;
+            if (axis === 'z') pivot.rotation.z += angle;
+            finalizeRotation(targetCubes, pivot);
+            resolve();
+        } else {
+            const startTime = Date.now();
+            function loop() {
+                const now = Date.now();
+                const progress = Math.min((now - startTime) / duration, 1);
+                const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+                if (axis === 'x') pivot.rotation.x = angle * ease;
+                if (axis === 'y') pivot.rotation.y = angle * ease;
+                if (axis === 'z') pivot.rotation.z = angle * ease;
+                if (progress < 1) {
+                    requestAnimationFrame(loop);
+                } else { 
+                    finalizeRotation(targetCubes, pivot); 
+                    resolve(); 
+                }
+            }
+            loop();
+        }
+    });
+}
+
+function finalizeRotation(activeCubies, pivot) {
+    pivot.updateMatrixWorld();
+    activeCubies.forEach(c => {
+        c.updateMatrixWorld();
+        const globalPos = new THREE.Vector3();
+        const globalQuat = new THREE.Quaternion();
+        const globalScale = new THREE.Vector3();
+        c.matrixWorld.decompose(globalPos, globalQuat, globalScale);
+        pivot.remove(c);
+        scene.add(c);
+        c.position.copy(globalPos);
+        c.quaternion.copy(globalQuat);
+        c.position.x = Math.round(c.position.x / SPACING) * SPACING;
+        c.position.y = Math.round(c.position.y / SPACING) * SPACING;
+        c.position.z = Math.round(c.position.z / SPACING) * SPACING;
+        c.isLocked = false; 
+    });
+    scene.remove(pivot); 
+    if (isSolving && !isShuffling) checkSolved();
+}
+
+async function rotateLayer(faceChar, clockwise, speed = 70) {
+    if (isLockedSolved && !isShuffling) return;
+
+    if (!isShuffling && isSoundOn) {
+        let moveKey = faceChar; 
+        if (moveKey.length === 1 || (moveKey.length > 1 && moveKey.includes('-'))) {
+             let standardFace = faceChar;
+             if (faceChar === 'F-L' || faceChar === 'F-R') standardFace = 'F';
+             if (faceChar === 'B-L' || faceChar === 'B-R') standardFace = 'B';
+             let notation = standardFace + (clockwise ? "" : "'");
+             playPianoNote(MOVE_TO_NOTE[notation]);
+        }
+    }
+
+    if (faceChar === 'Rw') {
+        const p1 = rotateLayer('R', clockwise, speed);
+        const p2 = rotateLayer('M', !clockwise, speed); 
+        await Promise.all([p1, p2]);
+        return;
+    } else if (faceChar === 'Lw') {
+        const p1 = rotateLayer('L', clockwise, speed);
+        const p2 = rotateLayer('M', clockwise, speed);
+        await Promise.all([p1, p2]);
+        return;
+    }
+
+    let actualFace = faceChar;
+    if (faceChar === 'F-L' || faceChar === 'F-R') actualFace = 'F';
+    if (faceChar === 'B-L' || faceChar === 'B-R') actualFace = 'B';
+
+    if (isScrambled && !isSolving && !isShuffling) startTimer();
+    
+    const faceData = FACES[actualFace];
+    const axis = faceData.axis;
+    const val = faceData.val;
+    const epsilon = 0.1;
+
+    const activeCubies = cubes.filter(c => {
+        if (axis === 'x') return Math.abs(c.position.x - val * SPACING) < epsilon;
+        if (axis === 'y') return Math.abs(c.position.y - val * SPACING) < epsilon;
+        if (axis === 'z') return Math.abs(c.position.z - val * SPACING) < epsilon;
+        return false;
+    });
+
+    if (activeCubies.some(c => c.isLocked)) return;
+
+    let angle = Math.PI / 2;
+    let dirMultiplier = clockwise ? -1 : 1;
+    
+    if (actualFace === 'L' || actualFace === 'D' || actualFace === 'M') {
+        dirMultiplier *= -1;
+    }
+    await performRotation(activeCubies, axis, angle * dirMultiplier, speed);
+}
+
+function rotateWholeCube(axis, clockwise) {
+    if (cubes.some(c => c.isLocked)) return;
+    let angle = Math.PI / 2;
+    let dir = clockwise ? 1 : -1; 
+    performRotation(cubes, axis, angle * dir, 100);
+}
+
+function generateScramble() {
+    const moves = ["R", "L", "U", "D", "F", "B"];
+    const modifiers = ["", "'", "2"];
+    let scramble = [];
+    let lastMove = "";
+    let secondLastMove = "";
+    for(let i=0; i<20; i++) {
+        let move;
+        do {
+            move = moves[Math.floor(Math.random() * moves.length)];
+        } while(move === lastMove || (move === secondLastMove && isOpposite(move, lastMove)));
+        
+        let mod = modifiers[Math.floor(Math.random() * modifiers.length)];
+        scramble.push(move + mod);
+        secondLastMove = lastMove;
+        lastMove = move;
+    }
+    return scramble.join(" ");
+}
+
+function isOpposite(m1, m2) {
+    if((m1==='R' && m2==='L') || (m1==='L' && m2==='R')) return true;
+    if((m1==='U' && m2==='D') || (m1==='D' && m2==='U')) return true;
+    if((m1==='F' && m2==='B') || (m1==='B' && m2==='F')) return true;
+    return false;
+}
+
+async function instantShuffle() {
+    if (isShuffling) return;
+    resetTimerState();
+    
+    const s = generateScramble();
+    currentScramble = s;
+    
+    isShuffling = true;
+    const moves = s.split(" ");
+    
+    for (let m of moves) {
+        let face = m[0];
+        let mod = m.substring(1);
+        let count = 1;
+        let cw = true;
+        if(mod === '2') count = 2;
+        if(mod === "'") cw = false;
+        
+        const faceData = FACES[face];
+        const axis = faceData.axis;
+        const val = faceData.val;
+        const activeCubies = cubes.filter(c => axis==='x'?Math.abs(c.position.x-val*SPACING)<0.1 : axis==='y'?Math.abs(c.position.y-val*SPACING)<0.1 : Math.abs(c.position.z-val*SPACING)<0.1);
+        
+        let angle = Math.PI / 2 * (cw?-1:1);
+        if (face === 'L' || face === 'D' || face === 'M') angle *= -1;
+        angle *= count;
+
+        const rot = new THREE.Matrix4();
+        if(axis==='x') rot.makeRotationX(angle);
+        if(axis==='y') rot.makeRotationY(angle);
+        if(axis==='z') rot.makeRotationZ(angle);
+
+        activeCubies.forEach(c => {
+            c.updateMatrix();
+            c.applyMatrix4(rot);
+            c.updateMatrixWorld(true);
+            c.position.x = Math.round(c.position.x / SPACING) * SPACING;
+            c.position.y = Math.round(c.position.y / SPACING) * SPACING;
+            c.position.z = Math.round(c.position.z / SPACING) * SPACING;
+            c.rotation.setFromRotationMatrix(c.matrix);
+        });
+    }
+    
+    await new Promise(r => setTimeout(r, 50));
+    isShuffling = false;
+    isScrambled = true; // Allow timer start on next move
+    isLockedSolved = false; 
+}
+
+// Reset Function
+function resetCube() {
+    if (timerInterval) clearInterval(timerInterval);
+    isSolving = false;
+    isScrambled = false;
+    isLockedSolved = false;
+    isShuffling = false;
+    document.getElementById('timer').innerText = "0.00";
+    document.getElementById('result-popup').classList.remove('active');
+
+    cubes.forEach(c => scene.remove(c));
+    cubes = [];
+    createRubiksCube();
+}
+
+function resetTimerState() {
+    if (timerInterval) clearInterval(timerInterval);
+    isSolving = false;
+    isScrambled = false;
+    isLockedSolved = false;
+    document.getElementById('timer').innerText = "0.00";
+    document.getElementById('result-popup').classList.remove('active');
+}
+
+function checkSolved() {
+    const directions = [
+        { dir: new THREE.Vector3(1,0,0), name: 'R' }, { dir: new THREE.Vector3(-1,0,0), name: 'L' },
+        { dir: new THREE.Vector3(0,1,0), name: 'U' }, { dir: new THREE.Vector3(0,-1,0), name: 'D' },
+        { dir: new THREE.Vector3(0,0,1), name: 'F' }, { dir: new THREE.Vector3(0,0,-1), name: 'B' }
+    ];
+    for (let d of directions) { if (getFaceColor(d.dir) === false) return; }
+    stopTimer(true);
+}
+
+function getFaceColor(direction) {
+    const epsilon = 0.1;
+    const faceCubies = cubes.filter(c => {
+        const pos = c.position.clone();
+        const component = pos.dot(direction);
+        return Math.abs(component - SPACING) < epsilon;
+    });
+    if (faceCubies.length !== 9) return false; 
+    
+    let commonColor = null;
+    for (let c of faceCubies) {
+        let foundPlate = false;
+        for (let child of c.children) {
+            if (child.userData.isPlate) {
+                const normal = new THREE.Vector3(0,0,1); 
+                normal.applyQuaternion(child.getWorldQuaternion(new THREE.Quaternion()));
+                if (normal.dot(direction) > 0.9) {
+                    if (commonColor === null) commonColor = child.userData.color;
+                    else if (commonColor !== child.userData.color) return false; 
+                    foundPlate = true;
+                    break;
+                }
+            }
+        }
+        if (!foundPlate) return false; 
+    }
+    return commonColor;
+}
+
+function startTimer() {
+    isSolving = true;
+    startTime = Date.now();
+    timerInterval = setInterval(() => {
+        const now = Date.now();
+        const diff = (now - startTime) / 1000;
+        document.getElementById('timer').innerText = diff.toFixed(2);
+    }, 30);
+}
+
+function stopTimer(solved) {
+    isSolving = false;
+    isScrambled = false;
+    clearInterval(timerInterval);
+    const timeStr = document.getElementById('timer').innerText;
+    if (solved) {
+        saveTime(timeStr, currentScramble);
+        document.getElementById('result-time').innerText = timeStr;
+        const best = getBestTime();
+        document.getElementById('new-best-label').style.display = (best && parseFloat(timeStr) <= best) ? 'block' : 'none';
+        document.getElementById('result-popup').classList.add('active');
+        isLockedSolved = true;
+    }
+}
+
+function startNextRound() {
+    instantShuffle();
+}
+
+function prepareNextGame() {
+    document.getElementById('result-popup').classList.remove('active');
+}
+
+// ---- Tools & Custom Algo Logic ----
+function saveCustomAlgo() {
+    const nameInput = document.getElementById('algo-name');
+    const algoInput = document.getElementById('custom-algo-input');
+    const idInput = document.getElementById('edit-id');
+    const name = nameInput.value.trim();
+    const algo = algoInput.value.trim();
+    const id = idInput.value;
+
+    if (!name || !algo) { alert("名前と手順を入力してください"); return; }
+
+    if (id) {
+        const index = customAlgos.findIndex(a => a.id == id);
+        if (index !== -1) customAlgos[index] = { id: Number(id), name, algo };
+    } else {
+        customAlgos.push({ id: Date.now(), name, algo });
+    }
+    localStorage.setItem('rubiks_custom_algos', JSON.stringify(customAlgos));
+    nameInput.value = ""; algoInput.value = ""; idInput.value = "";
+    renderAlgoList();
+}
+
+function deleteAlgo(id) {
+    if(!confirm("この手順を削除しますか？")) return;
+    customAlgos = customAlgos.filter(a => a.id !== id);
+    localStorage.setItem('rubiks_custom_algos', JSON.stringify(customAlgos));
+    renderAlgoList();
+}
+
+function editAlgo(id) {
+    const item = customAlgos.find(a => a.id === id);
+    if(item) {
+        document.getElementById('algo-name').value = item.name;
+        document.getElementById('custom-algo-input').value = item.algo;
+        document.getElementById('edit-id').value = item.id;
+        document.querySelector('#tools-modal .modal-content').scrollTop = 0;
+    }
+}
+
+function setupAlgo(id) {
+    const item = customAlgos.find(a => a.id === id);
+    if (!item) return;
+
+    const algoStr = item.algo;
+    const moves = algoStr.match(/([RLUDFBMrludfbm][wW]?['2]?)/g);
+    
+    if (!moves) return;
+
+    const reversedMoves = [...moves].reverse();
+    const invertedAlgo = reversedMoves.map(m => {
+        if(m.includes("2")) return m; 
+        if(m.includes("'")) return m.replace("'", ""); 
+        return m + "'"; 
+    }).join(" ");
+    
+    document.getElementById('tools-modal').classList.remove('active');
+    runSetupAlgorithm(invertedAlgo);
+}
+
+async function runSetupAlgorithm(algoStr) {
+    if(isShuffling) return;
+    resetTimerState(); 
+    isShuffling = true;
+    
+    const moves = algoStr.match(/([RLUDFBMrludfbm][wW]?['2]?)/g) || [];
+    
+    for(let move of moves) {
+        let match = move.match(/^([RLUDFBM][w]?)(['2]?)$/i); 
+        if (match) {
+            let face = match[1].toUpperCase(); 
+            if(face.length > 1) face = face.charAt(0).toUpperCase() + 'w';
+            
+            let mod = match[2];
+            let count = mod.includes('2') ? 2 : 1;
+            let cw = !mod.includes("'"); 
+            
+            for(let k=0; k<count; k++) {
+                await applyStandardMove(face, cw, 80); 
+            }
+        }
+    }
+    isShuffling = false;
+    // --- CHANGE: Setup doesn't start scramble timer anymore ---
+    isScrambled = false; 
+}
+
+async function applyStandardMove(face, isStandardCW, speed) {
+    let uiCW = isStandardCW;
+    if (face === 'B') {
+        uiCW = !isStandardCW;
+    }
+    await rotateLayer(face, uiCW, speed);
+}
+
+function renderAlgoList() {
+    const list = document.getElementById('saved-algo-list');
+    list.innerHTML = "";
+    if (customAlgos.length === 0) {
+        list.innerHTML = '<div style="color:#888; font-size:0.8rem; text-align:center; padding:10px;">保存された手順はありません</div>';
+        return;
+    }
+    [...customAlgos].reverse().forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'saved-algo-item';
+        div.innerHTML = `
+            <div class="algo-header">
+                <span class="algo-name">${item.name}</span>
+                <div>
+                    <button class="tool-btn btn-edit" style="padding:4px 8px; font-size:0.7rem;" onclick="editAlgo(${item.id})">✏️</button>
+                    <button class="tool-btn btn-delete" style="padding:4px 8px; font-size:0.7rem;" onclick="deleteAlgo(${item.id})">🗑️</button>
+                </div>
+            </div>
+            <div class="algo-seq">${item.algo}</div>
+            <button class="tool-btn btn-setup" style="width:100%; font-size:0.85rem;" onclick="setupAlgo(${item.id})">⚡ セットアップ (逆再生)</button>
+        `;
+        list.appendChild(div);
+    });
+}
+
+function runInputAlgo() {
+    const input = document.getElementById('custom-algo-input').value;
+    if(!input) return;
+    document.getElementById('tools-modal').classList.remove('active');
+    runAlgorithm(input);
+}
+function runRandomSetup() {
+    if (customAlgos.length === 0) {
+        alert("手順リストが空です！まずは保存してください。");
+        return;
+    }
+    setupAlgo(customAlgos[Math.floor(Math.random() * customAlgos.length)].id);
+}
+
+async function runAlgorithm(algoStr) {
+    if(isShuffling) return;
+    resetTimerState();
+    
+    isShuffling = true;
+    const moves = algoStr.match(/([RLUDFBMrludfbm][wW]?['2]?)/g) || [];
+    for(let move of moves) {
+        let match = move.match(/^([RLUDFBM][w]?)(['2]?)$/i);
+        if (match) {
+            let face = match[1].toUpperCase();
+            if(face.length > 1) face = face.charAt(0).toUpperCase() + 'w';
+            let mod = match[2];
+            let count = mod.includes('2') ? 2 : 1;
+            let cw = !mod.includes("'");
+            
+            for(let k=0; k<count; k++) {
+                await applyStandardMove(face, cw, 120);
+            }
+        }
+    }
+    isShuffling = false;
+    isScrambled = false; 
+}
+
+// ---- Interaction & Resize Handle ----
+function setupResizeHandle() {
+    const handle = document.getElementById('resize-handle');
+    const panel = document.getElementById('control-panel');
+    let startY = 0;
+    let startH = 0;
+    
+    const onDragStart = (e) => {
+        if (isSolving) return;
+        e.preventDefault();
+        startY = e.touches ? e.touches[0].clientY : e.clientY;
+        startH = panel.getBoundingClientRect().height;
+        document.body.style.cursor = 'ns-resize';
+        
+        const onDragMove = (em) => {
+            const currentY = em.touches ? em.touches[0].clientY : em.clientY;
+            const delta = startY - currentY; 
+            const newHeight = startH + delta;
+            
+            const maxH = window.innerHeight * 0.7;
+            const minH = 150;
+            if (newHeight >= minH && newHeight <= maxH) {
+                panel.style.height = newHeight + 'px';
+                onWindowResize(); // Adjust layout immediately
+            }
+        };
+
+        const onDragEnd = () => {
+            document.removeEventListener('mousemove', onDragMove);
+            document.removeEventListener('mouseup', onDragEnd);
+            document.removeEventListener('touchmove', onDragMove);
+            document.removeEventListener('touchend', onDragEnd);
+            document.body.style.cursor = '';
+        };
+
+        document.addEventListener('mousemove', onDragMove);
+        document.addEventListener('mouseup', onDragEnd);
+        document.addEventListener('touchmove', onDragMove, {passive: false});
+        document.addEventListener('touchend', onDragEnd);
+    };
+
+    handle.addEventListener('mousedown', onDragStart);
+    handle.addEventListener('touchstart', onDragStart, {passive: false});
+}
+
+function setupControls() {
+    let startX = 0, startY = 0;
+    let isDragging = false;
+    const container = document.getElementById('canvas-container');
+    const onStart = (e) => { if(!e.target.closest('#result-popup')) { isDragging = true; startX = e.touches?e.touches[0].clientX:e.clientX; startY = e.touches?e.touches[0].clientY:e.clientY; } };
+    const onEnd = (e) => {
+        if (!isDragging) return; isDragging = false;
+        const cx = e.changedTouches?e.changedTouches[0].clientX:e.clientX;
+        const cy = e.changedTouches?e.changedTouches[0].clientY:e.clientY;
+        if (Math.abs(cx-startX)>30 || Math.abs(cy-startY)>30) {
+            if (Math.abs(cx-startX) > Math.abs(cy-startY)) rotateWholeCube('y', cx-startX > 0);
+            else rotateWholeCube('x', cy-startY > 0);
+        }
+    };
+    container.addEventListener('mousedown', onStart); window.addEventListener('mouseup', onEnd);
+    container.addEventListener('touchstart', onStart); window.addEventListener('touchend', onEnd);
+}
+
+function setupUI() {
+    const btns = document.querySelectorAll('.panel-btn[data-face]');
+    btns.forEach(btn => {
+        const face = btn.getAttribute('data-face');
+        btn.onpointerdown = (e) => {
+            btn.setPointerCapture(e.pointerId);
+            btn._startX = e.clientX; btn._startY = e.clientY;
+            btn.style.background = '#d0d3d4';
+        };
+        btn.onpointerup = (e) => {
+            btn.style.background = '';
+            const dx = e.clientX - btn._startX; const dy = e.clientY - btn._startY;
+            if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+                let cw = true; if (face === 'F-L' || face === 'B-L') cw = false; 
+                rotateLayer(face, cw);
+            } else {
+                let isClockwise = true;
+                if (Math.abs(dx) > Math.abs(dy)) { // Horizontal
+                     if (face === 'U') isClockwise = dx < 0;
+                    else if (face === 'D') isClockwise = dx > 0; 
+                    else if (face === 'F-R' || face === 'F-L' || face === 'B-R' || face === 'B-L') isClockwise = dx > 0; 
+                    else if (face === 'R' || face === 'L' || face === 'M' || face === 'Rw' || face === 'Lw') isClockwise = dy < 0; 
+                } else { // Vertical
+                    if (face === 'R') isClockwise = dy < 0; 
+                    else if (face === 'Rw') isClockwise = dy < 0;
+                    
+                    else if (face === 'L') isClockwise = dy > 0; 
+                    else if (face === 'Lw') isClockwise = dy > 0;
+                    
+                    else if (face === 'M') isClockwise = dy > 0; 
+                    
+                    else if (face === 'F-R' || face === 'B-R') isClockwise = dy > 0; 
+                    else if (face === 'F-L' || face === 'B-L') isClockwise = dy < 0; 
+                    else if (face === 'U' || face === 'D') isClockwise = dx < 0; 
+                }
+                if (face === 'D') isClockwise = dx > 0;
+                rotateLayer(face, isClockwise);
+            }
+        };
+    });
+    document.getElementById('btn-shuffle').addEventListener('click', instantShuffle);
+    document.getElementById('btn-reset').addEventListener('click', resetCube);
+    document.getElementById('btn-sound').addEventListener('click', toggleSound);
+
+    const modal = document.getElementById('history-modal');
+    document.getElementById('btn-history').onclick = () => { updateStatsDisplay(); modal.classList.add('active'); };
+    document.getElementById('close-history').onclick = () => { modal.classList.remove('active'); };
+    
+    const toolsModal = document.getElementById('tools-modal');
+    document.getElementById('btn-tools').onclick = () => { toolsModal.classList.add('active'); };
+    document.getElementById('close-tools').onclick = () => { toolsModal.classList.remove('active'); };
+}
+
+function onWindowResize() { 
+    const c = document.getElementById('canvas-wrapper'); 
+    camera.aspect = c.clientWidth / c.clientHeight; 
+    camera.updateProjectionMatrix(); 
+    renderer.setSize(c.clientWidth, c.clientHeight);
+    adjustCamera(); 
+}
+
+function adjustCamera() {
+    const c = document.getElementById('canvas-wrapper');
+    const aspect = c.clientWidth / c.clientHeight;
+    
+    const targetRadius = 2.6; 
+    
+    const fovRad = THREE.Math.degToRad(camera.fov);
+    const distVertical = targetRadius / Math.sin(fovRad / 2);
+    const distHorizontal = targetRadius / Math.sin((fovRad * aspect) / 2); 
+
+    const finalDist = Math.max(distVertical, distHorizontal, 4.5); 
+    
+    camera.position.z = finalDist;
+    camera.position.y = finalDist * 0.35; 
+    camera.lookAt(0, -0.2, 0);
+}
+
+function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+</script>
+</body>
+</html>
