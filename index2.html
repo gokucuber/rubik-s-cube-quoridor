@@ -212,16 +212,17 @@
 
         .room-badge {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            bottom: 20px;
+            left: 20px;
             background: #333;
             color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 10px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 12px;
             font-weight: bold;
             z-index: 60;
             cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
         }
         
         .avatar-display {
@@ -671,7 +672,8 @@
         function loadOnlineGame(roomData) {
             gameState.players = roomData.board.players.map(p => ({
                 ...p,
-                goalCheck: getGoalCheck(p.id, roomData.board.players.length)
+                id: Number(p.id),
+                goalCheck: getGoalCheck(Number(p.id), roomData.board.players.length)
             }));
             gameState.walls = roomData.board.walls;
             gameState.turn = roomData.board.turn;
@@ -767,13 +769,14 @@
         };
 
         function getGoalCheck(id, totalPlayers) {
+            const pid = Number(id);
             if (totalPlayers === 2) {
-                return id === 0 ? (x,y)=>y===0 : (x,y)=>y===8;
+                return pid === 0 ? (x,y)=>y===0 : (x,y)=>y===8;
             } else {
-                if(id===0) return (x,y)=>y===0;
-                if(id===1) return (x,y)=>x===8;
-                if(id===2) return (x,y)=>y===8;
-                if(id===3) return (x,y)=>x===0;
+                if(pid===0) return (x,y)=>y===0;
+                if(pid===1) return (x,y)=>x===8;
+                if(pid===2) return (x,y)=>y===8;
+                if(pid===3) return (x,y)=>x===0;
             }
             return ()=>false;
         }
@@ -1221,6 +1224,3 @@
     </script>
 </body>
 </html>
-</html>
-
-
