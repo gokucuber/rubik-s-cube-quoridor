@@ -571,7 +571,7 @@
                 board: null
             };
             await setDoc(getRoomRef(roomId), roomData);
-            enterLobby(roomId, true);
+            enterLobby(roomId); // 引数削除
         };
 
         window.joinRoomUI = async () => {
@@ -586,22 +586,34 @@
             const data = snap.data();
             
             if (data.status !== 'waiting') return alert("この部屋は既にゲーム中です");
-            if (data.players.length >= data.maxPlayers) return alert("満員です");
+            if (data.players.length >= data.maxPlayers) {
+                 // 自分が既にいれば入れるようにする
+                 if (!data.players.some(p => p.uid === user.uid)) {
+                     return alert("満員です");
+                 }
+            }
             
+            // 既に参加済みの場合、情報を更新
             if (data.players.some(p => p.uid === user.uid)) {
-                enterLobby(roomId, false);
+                const newPlayers = data.players.map(p => {
+                    if (p.uid === user.uid) {
+                        return { ...p, name: myProfile.name, avatar: myProfile.avatar };
+                    }
+                    return p;
+                });
+                await updateDoc(roomRef, { players: newPlayers });
+                enterLobby(roomId); // 引数削除
                 return;
             }
 
             await updateDoc(roomRef, {
                 players: arrayUnion({ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar })
             });
-            enterLobby(roomId, false);
+            enterLobby(roomId); // 引数削除
         };
 
-        function enterLobby(roomId, isHost) {
+        function enterLobby(roomId) {
             onlineState.roomId = roomId;
-            onlineState.isHost = isHost;
             gameState.mode = 'online';
             document.getElementById('displayRoomId').textContent = roomId;
             showScreen('lobbyScreen');
@@ -610,6 +622,10 @@
                 const data = doc.data();
                 if (!data) return;
                 
+                // ホスト判定を毎回行う
+                const isHost = (data.hostId === user.uid);
+                onlineState.isHost = isHost;
+
                 // ロビー状態ならロビー画面へ（再戦対応）
                 if (data.status === 'waiting' && document.getElementById('lobbyScreen').classList.contains('hidden')) {
                     showScreen('lobbyScreen');
@@ -648,15 +664,11 @@
                     loadOnlineGame(data);
                 }
                 
-                // ゲーム終了状態（再戦やロビー戻り待ち）
+                // ゲーム終了状態
                 if (data.status === 'finished') {
-                    // 確実にリザルト画面を出す
                     if (data.board.winner !== null && data.board.winner !== undefined) {
-                         // まだリザルトが出てなければ出す（あるいは再表示）
                          if (document.getElementById('winOverlay').classList.contains('hidden')) {
-                            // ロードが必要な場合
                             if (!gameState.players.length) { 
-                                // 観戦者などのケースは省略するが、基本的にはplayingと同じロード処理で良い
                                 loadOnlineGame(data);
                             } else {
                                 const winnerPlayer = gameState.players.find(p => p.id === data.board.winner);
@@ -683,7 +695,6 @@
             });
         };
         
-        // 盤面初期化ロジックを分離（再戦で使うため）
         function createInitialBoard(playerCount, playersData) {
             const wallCount = playerCount === 2 ? 10 : 5;
             const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
@@ -732,14 +743,11 @@
             gameState.config.device = isMobile() ? 'mobile' : 'pc'; 
             onlineState.myIndex = gameState.players.findIndex(p => p.uid === user.uid);
             
-            // 勝者判定
             gameState.winner = roomData.board.winner;
             if (gameState.winner !== null && gameState.winner !== undefined) {
                 const winnerPlayer = gameState.players.find(p => p.id === gameState.winner);
                 if (winnerPlayer) handleWin(winnerPlayer);
-                // 勝利時は入力を受け付けないようにオーバーレイが出ているはず
             } else {
-                // ゲーム進行中ならオーバーレイを隠す（再戦時など）
                 document.getElementById('winOverlay').classList.add('hidden');
                 showScreen('gameContainer');
                 document.getElementById('roomBadge').classList.remove('hidden');
@@ -752,12 +760,43 @@
             }
         }
 
-        window.leaveRoom = () => {
+        window.leaveRoom = async () => {
+            if (!onlineState.roomId || !user) {
+                if (onlineState.unsubscribe) onlineState.unsubscribe();
+                location.reload();
+                return;
+            }
+            
+            const roomRef = getRoomRef(onlineState.roomId);
+            try {
+                const snap = await getDoc(roomRef);
+                if (snap.exists()) {
+                    const data = snap.data();
+                    const newPlayers = data.players.filter(p => p.uid !== user.uid);
+                    
+                    if (newPlayers.length === 0) {
+                        // 誰もいなくなったら空リストにしておく（status管理まではしない）
+                        await updateDoc(roomRef, { players: [] }); 
+                    } else {
+                        // ホストが抜けたら次の人に委譲
+                        if (data.hostId === user.uid) {
+                             await updateDoc(roomRef, { 
+                                 players: newPlayers,
+                                 hostId: newPlayers[0].uid
+                             });
+                        } else {
+                             await updateDoc(roomRef, { players: newPlayers });
+                        }
+                    }
+                }
+            } catch(e) {
+                console.error("Leave error:", e);
+            }
+
             if (onlineState.unsubscribe) onlineState.unsubscribe();
             location.reload();
         };
         
-        // 再戦（ホストのみ）
         window.rematch = async () => {
              const roomRef = getRoomRef(onlineState.roomId);
              const snap = await getDoc(roomRef);
@@ -768,10 +807,8 @@
                  status: 'playing',
                  board: board
              });
-             // リザルト画面を閉じるのはonSnapshotで行われる
         };
 
-        // ロビーに戻る（ホストのみ）
         window.backToLobby = async () => {
              const roomRef = getRoomRef(onlineState.roomId);
              await updateDoc(roomRef, {
@@ -977,7 +1014,6 @@
                 gameState.winner = p.id;
                 handleWin(p);
                 if(gameState.mode === 'online') {
-                     // 勝利時同期: statusをfinishedにして、ゲーム進行を止める
                      await syncBoard(true);
                 }
                 return;
@@ -1332,3 +1368,4 @@
     </script>
 </body>
 </html>
+
