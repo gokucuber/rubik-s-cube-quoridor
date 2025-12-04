@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>コリドール・オンライン</title>
+    <!-- PWA用の設定読み込み -->
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700&display=swap');
@@ -394,35 +396,37 @@
         // ==========================================
         
         const firebaseConfig = {
-            apiKey: "AIzaSyDETn1CILgo_9rBDzkAzbQpknBxCwfHHXA",
-  authDomain: "quoridor-online-cc3cf.firebaseapp.com",
-  projectId: "quoridor-online-cc3cf",
-  storageBucket: "quoridor-online-cc3cf.firebasestorage.app",
-  messagingSenderId: "739836219292",
-  appId: "1:739836219292:web:a2b2276394af407cdc0259",
-  measurementId: "G-DF7F022Q2E"
-
+            apiKey: "ここにAPI_KEYを貼り付け",
+            authDomain: "プロジェクトID.firebaseapp.com",
+            projectId: "プロジェクトID",
+            storageBucket: "プロジェクトID.appspot.com",
+            messagingSenderId: "12345678...",
+            appId: "1:12345678:web:abcdef..."
         };
         
         // ==========================================
         // ★★★ 書き換えここまで ★★★
         // ==========================================
 
-        // アプリID（このままでOK）
-        const appId = 'my-quoridor-online';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-quoridor-online';
 
-        // --- Init ---
-        // ※この環境で動かすためのチェック（ローカルで動かすときは無視してOK）
+        // --- PWA Service Worker Registration ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('SW registered'))
+                    .catch(err => console.log('SW registration failed: ', err));
+            });
+        }
+
         let app, auth, db;
         try {
-            // Preview環境用の特殊処理（ユーザーは気にしなくてOK）
             const configToUse = (typeof __firebase_config !== 'undefined') ? JSON.parse(__firebase_config) : firebaseConfig;
             app = initializeApp(configToUse);
             auth = getAuth(app);
             db = getFirestore(app);
         } catch(e) {
             console.error("Firebase Init Error:", e);
-            alert("Firebaseの設定が間違っているかも！コードを確認してね。");
         }
 
         // --- Profile & State ---
@@ -448,7 +452,6 @@
             createPlayers: 4 
         };
 
-        // --- Load Profile ---
         const savedProfile = localStorage.getItem('quoridor_profile');
         if (savedProfile) {
             try { myProfile = JSON.parse(savedProfile); } catch(e){}
@@ -456,7 +459,6 @@
         updateProfileUI();
         initAvatarList();
 
-        // --- Auth ---
         const initAuth = async () => {
              if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                 await signInWithCustomToken(auth, __initial_auth_token);
@@ -472,7 +474,6 @@
             }
         });
 
-        // --- UI Functions ---
         window.showScreen = (id) => {
             document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
             document.getElementById('gameContainer').classList.add('hidden');
@@ -480,7 +481,6 @@
             if(target) target.classList.remove('hidden');
         };
 
-        // Profile UI
         function updateProfileUI() {
             document.getElementById('homeName').textContent = myProfile.name;
             document.getElementById('homeAvatar').textContent = myProfile.avatar;
@@ -507,9 +507,7 @@
             showScreen('startScreen');
         };
 
-        // Offline Setup UI
         window.showOfflineSetup = () => {
-            // Force reset UI state to match default config (4p, PC) or keep last used
             setOfflinePlayers(gameState.config.playerCount); 
             setDevice(gameState.config.device);
             showScreen('offlineSetup');
@@ -527,17 +525,13 @@
             document.getElementById('off-mob').classList.toggle('selected', d==='mobile');
         };
         
-        // Online Setup UI
         window.setOnlineCreatePlayers = (n) => {
             onlineState.createPlayers = n;
             document.getElementById('on-create-2p').classList.toggle('selected', n===2);
             document.getElementById('on-create-4p').classList.toggle('selected', n===4);
         };
-        // Init default selection for online create
         setOnlineCreatePlayers(4);
 
-
-        // --- Online Logic ---
         const getRoomRef = (roomId) => doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomId);
 
         window.createRoomUI = async () => {
@@ -571,7 +565,6 @@
             if (data.status !== 'waiting') return alert("この部屋は既にゲーム中です");
             if (data.players.length >= data.maxPlayers) return alert("満員です");
             
-            // Re-join check
             if (data.players.some(p => p.uid === user.uid)) {
                 enterLobby(roomId, false);
                 return;
@@ -594,7 +587,6 @@
                 const data = doc.data();
                 if (!data) return;
                 
-                // Lobby UI
                 document.getElementById('lobbyCapacity').textContent = `${data.players.length} / ${data.maxPlayers}`;
                 
                 const list = document.getElementById('lobbyPlayerList');
@@ -609,11 +601,9 @@
                     </li>
                 `).join('');
 
-                // Start Button control
                 const btn = document.getElementById('startGameBtn');
                 if (isHost) {
                     btn.classList.remove('hidden');
-                    // Disable if not enough players (min 2)
                     if (data.players.length < 2) {
                         btn.classList.add('opacity-50', 'cursor-not-allowed');
                         btn.disabled = true;
@@ -649,9 +639,8 @@
                 {x:8, y:4, c:colors[3]}  // P4 (Right)
             ];
             
-            // For 2 Players, P2 is Top (Index 2 in 4p, but here we map to index 1 of array)
             if (playerCount === 2) {
-                configs[1] = {x:4, y:0, c:colors[2]}; // Override P2 slot with Top pos
+                configs[1] = {x:4, y:0, c:colors[2]};
             }
 
             for(let i=0; i<playerCount; i++) {
@@ -710,8 +699,6 @@
             alert("ルームIDをコピーしました: " + onlineState.roomId);
         };
 
-
-        // --- Game Logic ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const ghostEl = document.getElementById('dragGhost');
@@ -737,7 +724,6 @@
 
             gameState.players = [];
             
-            // P1
             gameState.players.push({ 
                 x: 4, y: 8, walls: wallCount, color: colors[0], id: 0, 
                 goalCheck: (x,y)=>y===0, 
@@ -745,14 +731,12 @@
             });
 
             if (cnt === 2) {
-                // P2 (Top)
                 gameState.players.push({ 
                     x: 4, y: 0, walls: wallCount, color: colors[2], id: 1, 
                     goalCheck: (x,y)=>y===8, 
                     name: "P2", avatar: "🐱" 
                 });
             } else {
-                // 4 Players
                 gameState.players.push({ x: 0, y: 4, walls: wallCount, color: colors[1], id: 1, goalCheck: (x,y)=>x===8, name: "P2", avatar: "🐱" });
                 gameState.players.push({ x: 4, y: 0, walls: wallCount, color: colors[2], id: 2, goalCheck: (x,y)=>y===8, name: "P3", avatar: "🐰" });
                 gameState.players.push({ x: 8, y: 4, walls: wallCount, color: colors[3], id: 3, goalCheck: (x,y)=>x===0, name: "P4", avatar: "🦊" });
@@ -890,7 +874,6 @@
             return false;
         }
 
-        // --- Interaction ---
         async function executeAction(action, data) {
             if (action === 'move') {
                 gameState.players[gameState.turn].x = data.x;
