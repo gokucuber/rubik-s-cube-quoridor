@@ -316,6 +316,19 @@
                     <button id="off-4p" class="btn-select" onclick="setOfflinePlayers(4)">4人</button>
                 </div>
             </div>
+            
+            <!-- Offline Team Mode (Visible only for 4P) -->
+            <div id="offlineTeamControl" class="hidden">
+                 <div class="flex items-center justify-between bg-white p-3 rounded-xl border shadow-sm">
+                     <span class="font-bold text-gray-600 text-sm">⚔️ チーム戦 (2vs2)</span>
+                     <div class="relative inline-block w-12 mr-2 align-middle select-none transition duration-200 ease-in">
+                         <input type="checkbox" id="offToggleTeam" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer">
+                         <label for="offToggleTeam" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                     </div>
+                 </div>
+                 <p class="text-xs text-gray-400 mt-1 pl-2">※隣接プレイヤーとチームになります</p>
+            </div>
+
             <div>
                 <label class="block text-sm font-bold text-gray-500 mb-2">操作</label>
                 <div class="grid grid-cols-2 gap-2">
@@ -501,6 +514,7 @@
             walls: [],
             turn: 0,
             winner: null,
+            isTeamMode: false,
             config: { playerCount: 4, device: 'pc' }
         };
         
@@ -579,6 +593,11 @@
             gameState.config.playerCount = n;
             document.getElementById('off-2p').classList.toggle('selected', n===2);
             document.getElementById('off-4p').classList.toggle('selected', n===4);
+            
+            // チーム戦オプションは4人時のみ表示
+            const teamCtrl = document.getElementById('offlineTeamControl');
+            if (n === 4) teamCtrl.classList.remove('hidden');
+            else teamCtrl.classList.add('hidden');
         };
 
         window.setDevice = (d) => {
@@ -758,7 +777,6 @@
              const roomRef = getRoomRef(onlineState.roomId);
              const newValue = document.getElementById('toggleTeam').checked;
              
-             // モード切替時にチーム人数をリバランス（Red, Red, Blue, Blue）
              const snap = await getDoc(roomRef);
              const players = snap.data().players;
              if (newValue) {
@@ -773,8 +791,6 @@
         };
 
         window.togglePlayerTeam = async (targetUid) => {
-            // イベントバブリング防止はHTML側で制御できないので、
-            // 実際はチーム戦モードかつホストのときのみ呼ばれる
             const roomRef = getRoomRef(onlineState.roomId);
             const snap = await getDoc(roomRef);
             const data = snap.data();
@@ -797,7 +813,6 @@
             const playerCount = data.players.length;
             if (playerCount < 2) return;
             
-            // チーム戦のバリデーション（2vs2のみ許可）
             if (data.isTeamMode && playerCount === 4) {
                 const reds = data.players.filter(p => p.team === 'Red').length;
                 const blues = data.players.filter(p => p.team === 'Blue').length;
@@ -806,8 +821,6 @@
                     return;
                 }
                 
-                // 席順を並び替え：Redチーム(0,1) vs Blueチーム(2,3) にする
-                // これにより Redは下＆左、Blueは上＆右 になり隣接する
                 const redTeam = data.players.filter(p => p.team === 'Red');
                 const blueTeam = data.players.filter(p => p.team === 'Blue');
                 const sortedPlayers = [...redTeam, ...blueTeam];
@@ -824,13 +837,11 @@
         function createInitialBoard(playerCount, playersData, isTeamMode) {
             const wallCount = playerCount === 2 ? 10 : 5;
             
-            // Team colors: Red/Pink vs Blue/Cyan
             const teamColors = ['#ef4444', '#ec4899', '#3b82f6', '#06b6d4']; // Red, Pink, Blue, Cyan
             const normalColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
 
             const boardPlayers = [];
             
-            // Configs for position
             // 0:Bottom, 1:Left, 2:Top, 3:Right
             const configs = [
                 {x:4, y:8}, // P1 (Bottom)
@@ -864,23 +875,27 @@
                     color: color,
                     team: team,
                     id: i, 
-                    uid: playersData[i].uid,
+                    uid: playersData[i].uid || null,
                     name: playersData[i].name,
                     avatar: playersData[i].avatar
                 });
             }
+            
+            // Random start turn
+            const startTurn = Math.floor(Math.random() * playerCount);
 
             return {
                 players: boardPlayers,
                 walls: [],
-                turn: 0,
+                turn: startTurn,
                 winner: null,
                 isTeamMode: !!isTeamMode
             };
         }
 
         function loadOnlineGame(roomData) {
-            onlineState.isTeamMode = roomData.board.isTeamMode || false;
+            gameState.isTeamMode = roomData.board.isTeamMode || false;
+            onlineState.isTeamMode = gameState.isTeamMode;
             
             gameState.players = roomData.board.players.map(p => ({
                 ...p,
@@ -951,17 +966,11 @@
              const snap = await getDoc(roomRef);
              const data = snap.data();
              
-             // 再戦時もチームモードとプレイヤー順序を考慮して盤面生成
-             // ゲーム開始時にソートされた順番でboard.playersに入っているはずなので
-             // 前回のboard.playersの順序とチーム情報を使って再構築するのが安全だが
-             // ここでは簡易的に現在のplayers配列（ロビー順）を再度ソートして使う
              let playersToUse = data.players;
              
              if (onlineState.isTeamMode && playersToUse.length === 4) {
                 const redTeam = playersToUse.filter(p => p.team === 'Red');
                 const blueTeam = playersToUse.filter(p => p.team === 'Blue');
-                // もしチーム情報が消えていたらランダム割り当て等のケアが必要だが
-                // 基本的には残っている前提
                 if (redTeam.length === 2 && blueTeam.length === 2) {
                     playersToUse = [...redTeam, ...blueTeam];
                 }
@@ -1008,33 +1017,39 @@
         window.startOfflineGame = () => {
             gameState.mode = 'offline';
             const cnt = gameState.config.playerCount;
-            const wallCount = cnt === 2 ? 10 : 5;
-            const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
-
-            gameState.players = [];
             
-            gameState.players.push({ 
-                x: 4, y: 8, walls: wallCount, color: colors[0], id: 0, 
-                goalCheck: (x,y)=>y===0, 
-                name: "P1", avatar: "🐶" 
-            });
+            // チーム戦の設定取得
+            const isTeam = (cnt === 4) && document.getElementById('offToggleTeam').checked;
+            gameState.isTeamMode = isTeam;
 
-            if (cnt === 2) {
-                gameState.players.push({ 
-                    x: 4, y: 0, walls: wallCount, color: colors[2], id: 1, 
-                    goalCheck: (x,y)=>y===8, 
-                    name: "P2", avatar: "🐱" 
+            let players = [];
+            
+            // プレイヤの定義 (名前とアイコン)
+            const avatars = ["🐶","🐱","🐰","🦊"];
+            for(let i=0; i<cnt; i++) {
+                players.push({
+                    uid: `cpu-${i}`,
+                    name: `P${i+1}`,
+                    avatar: avatars[i]
                 });
-            } else {
-                gameState.players.push({ x: 0, y: 4, walls: wallCount, color: colors[1], id: 1, goalCheck: (x,y)=>x===8, name: "P2", avatar: "🐱" });
-                gameState.players.push({ x: 4, y: 0, walls: wallCount, color: colors[2], id: 2, goalCheck: (x,y)=>y===8, name: "P3", avatar: "🐰" });
-                gameState.players.push({ x: 8, y: 4, walls: wallCount, color: colors[3], id: 3, goalCheck: (x,y)=>x===0, name: "P4", avatar: "🦊" });
+            }
+            
+            // チーム分け（オフライン用）: 0,1がRed、2,3がBlue
+            if (isTeam) {
+                players[0].team = 'Red'; players[1].team = 'Red';
+                players[2].team = 'Blue'; players[3].team = 'Blue';
             }
 
+            const board = createInitialBoard(cnt, players, isTeam);
+            
+            // gameStateに適用
+            gameState.players = board.players.map(p => ({
+                ...p,
+                goalCheck: getGoalCheck(p.id, cnt)
+            }));
             gameState.walls = [];
-            gameState.turn = 0;
+            gameState.turn = board.turn; // ランダムな手番を適用
             gameState.winner = null;
-            onlineState.isTeamMode = false; // Offline is always individual
 
             showScreen('gameContainer');
             if(gameState.config.device === 'mobile') {
@@ -1412,10 +1427,14 @@
             const isMe = gameState.mode === 'online' && player.uid === user.uid;
             
             let winText = "";
-            if (onlineState.isTeamMode && player.team) {
-                const myPlayer = gameState.players.find(p => p.uid === user.uid);
-                if (myPlayer && myPlayer.team === player.team) {
-                    winText = `Team ${player.team} Wins! (You Win!)`;
+            if (gameState.isTeamMode && player.team) {
+                if (gameState.mode === 'online') {
+                    const myPlayer = gameState.players.find(p => p.uid === user.uid);
+                    if (myPlayer && myPlayer.team === player.team) {
+                        winText = `Team ${player.team} Wins! (You Win!)`;
+                    } else {
+                        winText = `Team ${player.team} Wins!`;
+                    }
                 } else {
                     winText = `Team ${player.team} Wins!`;
                 }
@@ -1551,4 +1570,5 @@
     </script>
 </body>
 </html>
+
 
