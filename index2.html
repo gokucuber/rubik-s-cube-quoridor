@@ -47,6 +47,7 @@
         }
         .btn-primary:active { transform: scale(0.95); }
         .btn-primary:hover { background-color: #4338ca; }
+        .btn-primary:disabled { background-color: #a5a6f6; cursor: not-allowed; transform: none; }
 
         .btn-secondary {
             background-color: white;
@@ -210,20 +211,24 @@
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
 
+        /* ID表示位置を左下に変更 */
         .room-badge {
             position: absolute;
-            bottom: 20px;
+            bottom: 20px; 
             left: 20px;
-            background: #333;
+            background: rgba(55, 65, 81, 0.9);
             color: white;
-            padding: 6px 10px;
+            padding: 8px 12px;
             border-radius: 8px;
-            font-size: 12px;
+            font-size: 14px;
             font-weight: bold;
             z-index: 60;
             cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            backdrop-filter: blur(4px);
+            transition: transform 0.1s;
         }
+        .room-badge:active { transform: scale(0.95); }
         
         .avatar-display {
             display: inline-flex;
@@ -383,8 +388,24 @@
 
     <!-- Winner Overlay -->
     <div id="winOverlay" class="overlay hidden">
-        <h2 id="winnerText" class="text-3xl font-bold mb-4 text-gray-800">Winner!</h2>
-        <button onclick="location.reload()" class="btn-primary">トップへ戻る</button>
+        <h2 id="winnerText" class="text-3xl font-bold mb-8 text-gray-800">Winner!</h2>
+        
+        <!-- Host Controls -->
+        <div id="hostControls" class="w-full max-w-xs space-y-3 hidden">
+            <button onclick="rematch()" class="btn-primary w-full flex items-center justify-center gap-2">
+                👑 もう一度遊ぶ
+            </button>
+            <button onclick="backToLobby()" class="btn-secondary w-full flex items-center justify-center gap-2">
+                🏠 ロビーに戻る
+            </button>
+        </div>
+
+        <!-- Guest Controls -->
+        <div id="guestControls" class="w-full max-w-xs space-y-3 hidden">
+            <p class="text-center text-gray-500 text-sm mb-4">ホストの操作を待っています...</p>
+        </div>
+        
+        <button onclick="leaveRoom()" class="text-sm text-red-400 mt-6">退出する</button>
     </div>
 
     <script type="module">
@@ -589,6 +610,12 @@
                 const data = doc.data();
                 if (!data) return;
                 
+                // ロビー状態ならロビー画面へ（再戦対応）
+                if (data.status === 'waiting' && document.getElementById('lobbyScreen').classList.contains('hidden')) {
+                    showScreen('lobbyScreen');
+                    document.getElementById('winOverlay').classList.add('hidden');
+                }
+
                 document.getElementById('lobbyCapacity').textContent = `${data.players.length} / ${data.maxPlayers}`;
                 
                 const list = document.getElementById('lobbyPlayerList');
@@ -620,6 +647,24 @@
                 if (data.status === 'playing' && data.board) {
                     loadOnlineGame(data);
                 }
+                
+                // ゲーム終了状態（再戦やロビー戻り待ち）
+                if (data.status === 'finished') {
+                    // 確実にリザルト画面を出す
+                    if (data.board.winner !== null && data.board.winner !== undefined) {
+                         // まだリザルトが出てなければ出す（あるいは再表示）
+                         if (document.getElementById('winOverlay').classList.contains('hidden')) {
+                            // ロードが必要な場合
+                            if (!gameState.players.length) { 
+                                // 観戦者などのケースは省略するが、基本的にはplayingと同じロード処理で良い
+                                loadOnlineGame(data);
+                            } else {
+                                const winnerPlayer = gameState.players.find(p => p.id === data.board.winner);
+                                if (winnerPlayer) handleWin(winnerPlayer);
+                            }
+                         }
+                    }
+                }
             });
         }
 
@@ -630,6 +675,16 @@
             const playerCount = data.players.length;
             if (playerCount < 2) return;
 
+            const board = createInitialBoard(playerCount, data.players);
+
+            await updateDoc(roomRef, {
+                status: 'playing',
+                board: board
+            });
+        };
+        
+        // 盤面初期化ロジックを分離（再戦で使うため）
+        function createInitialBoard(playerCount, playersData) {
             const wallCount = playerCount === 2 ? 10 : 5;
             const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
             const boardPlayers = [];
@@ -650,25 +705,20 @@
                     x: configs[i].x, y: configs[i].y,
                     walls: wallCount, color: configs[i].c,
                     id: i, 
-                    uid: data.players[i].uid,
-                    name: data.players[i].name,
-                    avatar: data.players[i].avatar
+                    uid: playersData[i].uid,
+                    name: playersData[i].name,
+                    avatar: playersData[i].avatar
                 });
             }
 
-            const initialBoard = {
+            return {
                 players: boardPlayers,
                 walls: [],
                 turn: 0,
                 winner: null
             };
+        }
 
-            await updateDoc(roomRef, {
-                status: 'playing',
-                board: initialBoard
-            });
-        };
-        
         function loadOnlineGame(roomData) {
             gameState.players = roomData.board.players.map(p => ({
                 ...p,
@@ -682,26 +732,52 @@
             gameState.config.device = isMobile() ? 'mobile' : 'pc'; 
             onlineState.myIndex = gameState.players.findIndex(p => p.uid === user.uid);
             
-            // ★ FIX: Sync Winner State
+            // 勝者判定
             gameState.winner = roomData.board.winner;
             if (gameState.winner !== null && gameState.winner !== undefined) {
                 const winnerPlayer = gameState.players.find(p => p.id === gameState.winner);
                 if (winnerPlayer) handleWin(winnerPlayer);
+                // 勝利時は入力を受け付けないようにオーバーレイが出ているはず
+            } else {
+                // ゲーム進行中ならオーバーレイを隠す（再戦時など）
+                document.getElementById('winOverlay').classList.add('hidden');
+                showScreen('gameContainer');
+                document.getElementById('roomBadge').classList.remove('hidden');
+                document.getElementById('gameRoomId').textContent = onlineState.roomId;
+                
+                resizeCanvas();
+                createStatsUI();
+                updateUI();
+                draw();
             }
-            
-            showScreen('gameContainer');
-            document.getElementById('roomBadge').classList.remove('hidden');
-            document.getElementById('gameRoomId').textContent = onlineState.roomId;
-            
-            resizeCanvas();
-            createStatsUI();
-            updateUI();
-            draw();
         }
 
         window.leaveRoom = () => {
             if (onlineState.unsubscribe) onlineState.unsubscribe();
             location.reload();
+        };
+        
+        // 再戦（ホストのみ）
+        window.rematch = async () => {
+             const roomRef = getRoomRef(onlineState.roomId);
+             const snap = await getDoc(roomRef);
+             const data = snap.data();
+             const board = createInitialBoard(data.players.length, data.players);
+             
+             await updateDoc(roomRef, {
+                 status: 'playing',
+                 board: board
+             });
+             // リザルト画面を閉じるのはonSnapshotで行われる
+        };
+
+        // ロビーに戻る（ホストのみ）
+        window.backToLobby = async () => {
+             const roomRef = getRoomRef(onlineState.roomId);
+             await updateDoc(roomRef, {
+                 status: 'waiting',
+                 board: null
+             });
         };
         
         window.copyRoomId = () => {
@@ -886,6 +962,8 @@
         }
 
         async function executeAction(action, data) {
+            if (gameState.winner !== null) return; // 既に勝者がいれば操作無効
+
             if (action === 'move') {
                 gameState.players[gameState.turn].x = data.x;
                 gameState.players[gameState.turn].y = data.y;
@@ -898,7 +976,10 @@
             if (p.goalCheck(p.x, p.y)) {
                 gameState.winner = p.id;
                 handleWin(p);
-                if(gameState.mode === 'online') await syncBoard();
+                if(gameState.mode === 'online') {
+                     // 勝利時同期: statusをfinishedにして、ゲーム進行を止める
+                     await syncBoard(true);
+                }
                 return;
             }
 
@@ -906,20 +987,27 @@
             updateUI();
             draw();
 
-            if (gameState.mode === 'online') await syncBoard();
+            if (gameState.mode === 'online') await syncBoard(false);
         }
 
-        async function syncBoard() {
+        async function syncBoard(isFinished = false) {
              const safePlayers = gameState.players.map(p => ({
                  x: p.x, y: p.y, walls: p.walls, color: p.color, id: p.id, uid: p.uid || null,
                  name: p.name || 'P'+(p.id+1), avatar: p.avatar || '👤'
              }));
-             await updateDoc(getRoomRef(onlineState.roomId), {
+             
+             const updateData = {
                  'board.players': safePlayers,
                  'board.walls': gameState.walls,
                  'board.turn': gameState.turn,
                  'board.winner': gameState.winner
-             });
+             };
+             
+             if (isFinished) {
+                 updateData['status'] = 'finished';
+             }
+
+             await updateDoc(getRoomRef(onlineState.roomId), updateData);
         }
 
         function handleInteraction(e) {
@@ -1117,7 +1205,27 @@
         function handleWin(player) {
             const isMe = gameState.mode === 'online' && player.uid === user.uid;
             document.getElementById('winnerText').textContent = isMe ? "You Win!" : `${player.name} Wins!`;
-            document.getElementById('winOverlay').classList.remove('hidden');
+            
+            const overlay = document.getElementById('winOverlay');
+            overlay.classList.remove('hidden');
+
+            // Controls
+            const hostControls = document.getElementById('hostControls');
+            const guestControls = document.getElementById('guestControls');
+
+            if (gameState.mode === 'online') {
+                if (onlineState.isHost) {
+                    hostControls.classList.remove('hidden');
+                    guestControls.classList.add('hidden');
+                } else {
+                    hostControls.classList.add('hidden');
+                    guestControls.classList.remove('hidden');
+                }
+            } else {
+                // Offline
+                hostControls.classList.add('hidden');
+                guestControls.classList.add('hidden');
+            }
         }
 
         function draw() {
