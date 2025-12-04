@@ -680,6 +680,13 @@
             gameState.config.device = isMobile() ? 'mobile' : 'pc'; 
             onlineState.myIndex = gameState.players.findIndex(p => p.uid === user.uid);
             
+            // ★ FIX: Sync Winner State
+            gameState.winner = roomData.board.winner;
+            if (gameState.winner !== null && gameState.winner !== undefined) {
+                const winnerPlayer = gameState.players.find(p => p.id === gameState.winner);
+                if (winnerPlayer) handleWin(winnerPlayer);
+            }
+            
             showScreen('gameContainer');
             document.getElementById('roomBadge').classList.remove('hidden');
             document.getElementById('gameRoomId').textContent = onlineState.roomId;
@@ -800,16 +807,16 @@
                 const n2 = gameState.players.find(pl => pl.x === tx && pl.y === p.y); 
                 
                 if (n1) {
-                     if (!isWallBlocking(p.x, p.y, n1.x, n1.y)) {
-                         const jx = n1.x;
-                         const jy = n1.y + (n1.y - p.y);
-                         const isStraightBlocked = 
+                      if (!isWallBlocking(p.x, p.y, n1.x, n1.y)) {
+                          const jx = n1.x;
+                          const jy = n1.y + (n1.y - p.y);
+                          const isStraightBlocked = 
                             jy < 0 || jy >= BOARD_SIZE || 
                             isWallBlocking(n1.x, n1.y, jx, jy) || 
                             gameState.players.some(pl => pl.x === jx && pl.y === jy);
-                         
-                         if (isStraightBlocked && !isWallBlocking(n1.x, n1.y, tx, ty)) return true;
-                     }
+                          
+                          if (isStraightBlocked && !isWallBlocking(n1.x, n1.y, tx, ty)) return true;
+                      }
                 }
 
                 if (n2) {
@@ -1214,4 +1221,6 @@
     </script>
 </body>
 </html>
+</html>
+
 
