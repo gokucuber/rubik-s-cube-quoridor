@@ -73,6 +73,15 @@
             background-color: #eef2ff;
             color: #4f46e5;
         }
+        
+        /* Toggle Switch */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #4f46e5;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #4f46e5;
+        }
 
         .avatar-select {
             font-size: 2rem;
@@ -162,6 +171,16 @@
             border-style: dashed;
             border-color: #6366f1;
         }
+        
+        .team-badge {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: white;
+            margin-right: 4px;
+        }
+        .team-red { background-color: #ef4444; }
+        .team-blue { background-color: #3b82f6; }
 
         .top-btn {
             position: absolute;
@@ -211,7 +230,7 @@
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
 
-        /* ID表示位置を左下に変更 */
+        /* ID表示位置 */
         .room-badge {
             position: absolute;
             bottom: 20px; 
@@ -348,6 +367,23 @@
             </ul>
         </div>
 
+        <!-- Team Mode Toggle (Host Only / 4 Players Only) -->
+        <div id="teamModeControl" class="w-full max-w-xs mb-4 hidden">
+             <div class="flex items-center justify-between bg-white p-3 rounded-xl border shadow-sm">
+                 <span class="font-bold text-gray-600 text-sm">⚔️ チーム戦 (2vs2)</span>
+                 
+                 <!-- Host Toggle -->
+                 <div id="hostTeamToggle" class="relative inline-block w-12 mr-2 align-middle select-none transition duration-200 ease-in hidden">
+                     <input type="checkbox" id="toggleTeam" class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer" onclick="toggleTeamMode()">
+                     <label for="toggleTeam" class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"></label>
+                 </div>
+                 
+                 <!-- Guest Display -->
+                 <span id="guestTeamStatus" class="text-sm font-bold text-gray-400 hidden">OFF</span>
+             </div>
+             <p class="text-xs text-gray-400 mt-1 pl-2">※隣接プレイヤーとチームになります</p>
+        </div>
+
         <p id="lobbyStatus" class="text-sm text-gray-500 mb-4 animate-pulse">他のプレイヤーを待っています...</p>
         
         <button id="startGameBtn" onclick="startOnlineGame()" class="btn-primary w-full max-w-xs hidden">ゲーム開始</button>
@@ -472,7 +508,8 @@
             myIndex: -1,
             isHost: false,
             unsubscribe: null,
-            createPlayers: 4 
+            createPlayers: 4,
+            isTeamMode: false
         };
 
         const savedProfile = localStorage.getItem('quoridor_profile');
@@ -566,12 +603,13 @@
                 hostId: user.uid,
                 status: 'waiting',
                 maxPlayers: max,
+                isTeamMode: false,
                 createdAt: serverTimestamp(),
                 players: [{ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar }],
                 board: null
             };
             await setDoc(getRoomRef(roomId), roomData);
-            enterLobby(roomId); // 引数削除
+            enterLobby(roomId); 
         };
 
         window.joinRoomUI = async () => {
@@ -587,13 +625,11 @@
             
             if (data.status !== 'waiting') return alert("この部屋は既にゲーム中です");
             if (data.players.length >= data.maxPlayers) {
-                 // 自分が既にいれば入れるようにする
                  if (!data.players.some(p => p.uid === user.uid)) {
                      return alert("満員です");
                  }
             }
             
-            // 既に参加済みの場合、情報を更新
             if (data.players.some(p => p.uid === user.uid)) {
                 const newPlayers = data.players.map(p => {
                     if (p.uid === user.uid) {
@@ -602,14 +638,14 @@
                     return p;
                 });
                 await updateDoc(roomRef, { players: newPlayers });
-                enterLobby(roomId); // 引数削除
+                enterLobby(roomId); 
                 return;
             }
 
             await updateDoc(roomRef, {
                 players: arrayUnion({ uid: user.uid, name: myProfile.name, avatar: myProfile.avatar })
             });
-            enterLobby(roomId); // 引数削除
+            enterLobby(roomId);
         };
 
         function enterLobby(roomId) {
@@ -622,11 +658,11 @@
                 const data = doc.data();
                 if (!data) return;
                 
-                // ホスト判定を毎回行う
                 const isHost = (data.hostId === user.uid);
                 onlineState.isHost = isHost;
+                onlineState.isTeamMode = data.isTeamMode || false;
 
-                // ロビー状態ならロビー画面へ（再戦対応）
+                // ロビー状態ならロビー画面へ
                 if (data.status === 'waiting' && document.getElementById('lobbyScreen').classList.contains('hidden')) {
                     showScreen('lobbyScreen');
                     document.getElementById('winOverlay').classList.add('hidden');
@@ -647,6 +683,30 @@
                 `).join('');
 
                 const btn = document.getElementById('startGameBtn');
+                const teamCtrl = document.getElementById('teamModeControl');
+                
+                // 4人部屋ならチーム設定を表示
+                if (data.maxPlayers === 4) {
+                    teamCtrl.classList.remove('hidden');
+                    
+                    const hostToggle = document.getElementById('hostTeamToggle');
+                    const guestStatus = document.getElementById('guestTeamStatus');
+                    const checkbox = document.getElementById('toggleTeam');
+                    
+                    if (isHost) {
+                        hostToggle.classList.remove('hidden');
+                        guestStatus.classList.add('hidden');
+                        checkbox.checked = onlineState.isTeamMode;
+                    } else {
+                        hostToggle.classList.add('hidden');
+                        guestStatus.classList.remove('hidden');
+                        guestStatus.textContent = onlineState.isTeamMode ? 'ON' : 'OFF';
+                        guestStatus.className = `text-sm font-bold ${onlineState.isTeamMode ? 'text-indigo-600' : 'text-gray-400'}`;
+                    }
+                } else {
+                    teamCtrl.classList.add('hidden');
+                }
+
                 if (isHost) {
                     btn.classList.remove('hidden');
                     if (data.players.length < 2) {
@@ -664,7 +724,6 @@
                     loadOnlineGame(data);
                 }
                 
-                // ゲーム終了状態
                 if (data.status === 'finished') {
                     if (data.board.winner !== null && data.board.winner !== undefined) {
                          if (document.getElementById('winOverlay').classList.contains('hidden')) {
@@ -679,6 +738,12 @@
                 }
             });
         }
+        
+        window.toggleTeamMode = async () => {
+             const roomRef = getRoomRef(onlineState.roomId);
+             const newValue = document.getElementById('toggleTeam').checked;
+             await updateDoc(roomRef, { isTeamMode: newValue });
+        };
 
         window.startOnlineGame = async () => {
             const roomRef = getRoomRef(onlineState.roomId);
@@ -687,7 +752,7 @@
             const playerCount = data.players.length;
             if (playerCount < 2) return;
 
-            const board = createInitialBoard(playerCount, data.players);
+            const board = createInitialBoard(playerCount, data.players, data.isTeamMode);
 
             await updateDoc(roomRef, {
                 status: 'playing',
@@ -695,26 +760,49 @@
             });
         };
         
-        function createInitialBoard(playerCount, playersData) {
+        function createInitialBoard(playerCount, playersData, isTeamMode) {
             const wallCount = playerCount === 2 ? 10 : 5;
-            const colors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
-            const boardPlayers = [];
+            
+            // Team colors: Red/Pink vs Blue/Cyan
+            const teamColors = ['#ef4444', '#ec4899', '#3b82f6', '#06b6d4']; // Red, Pink, Blue, Cyan
+            const normalColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308'];
 
+            const boardPlayers = [];
+            
+            // Configs for position
             const configs = [
-                {x:4, y:8, c:colors[0]}, // P1 (Bot)
-                {x:0, y:4, c:colors[1]}, // P2 (Left)
-                {x:4, y:0, c:colors[2]}, // P3 (Top)
-                {x:8, y:4, c:colors[3]}  // P4 (Right)
+                {x:4, y:8}, // P1 (Bottom)
+                {x:0, y:4}, // P2 (Left)
+                {x:4, y:0}, // P3 (Top)
+                {x:8, y:4}  // P4 (Right)
             ];
             
             if (playerCount === 2) {
-                configs[1] = {x:4, y:0, c:colors[2]};
+                configs[1] = {x:4, y:0};
             }
 
             for(let i=0; i<playerCount; i++) {
+                let color = normalColors[i];
+                let team = null;
+                
+                if (isTeamMode && playerCount === 4) {
+                    // Team Red: P1(0) & P2(1) (Bottom & Left)
+                    if (i === 0 || i === 1) {
+                        team = 'Red';
+                        color = teamColors[i]; // Red, Pink
+                    } 
+                    // Team Blue: P3(2) & P4(3) (Top & Right)
+                    else {
+                        team = 'Blue';
+                        color = teamColors[i]; // Blue, Cyan
+                    }
+                }
+
                 boardPlayers.push({
                     x: configs[i].x, y: configs[i].y,
-                    walls: wallCount, color: configs[i].c,
+                    walls: wallCount, 
+                    color: color,
+                    team: team,
                     id: i, 
                     uid: playersData[i].uid,
                     name: playersData[i].name,
@@ -726,11 +814,14 @@
                 players: boardPlayers,
                 walls: [],
                 turn: 0,
-                winner: null
+                winner: null,
+                isTeamMode: !!isTeamMode
             };
         }
 
         function loadOnlineGame(roomData) {
+            onlineState.isTeamMode = roomData.board.isTeamMode || false;
+            
             gameState.players = roomData.board.players.map(p => ({
                 ...p,
                 id: Number(p.id),
@@ -775,10 +866,8 @@
                     const newPlayers = data.players.filter(p => p.uid !== user.uid);
                     
                     if (newPlayers.length === 0) {
-                        // 誰もいなくなったら空リストにしておく（status管理まではしない）
                         await updateDoc(roomRef, { players: [] }); 
                     } else {
-                        // ホストが抜けたら次の人に委譲
                         if (data.hostId === user.uid) {
                              await updateDoc(roomRef, { 
                                  players: newPlayers,
@@ -801,7 +890,7 @@
              const roomRef = getRoomRef(onlineState.roomId);
              const snap = await getDoc(roomRef);
              const data = snap.data();
-             const board = createInitialBoard(data.players.length, data.players);
+             const board = createInitialBoard(data.players.length, data.players, onlineState.isTeamMode);
              
              await updateDoc(roomRef, {
                  status: 'playing',
@@ -868,6 +957,7 @@
             gameState.walls = [];
             gameState.turn = 0;
             gameState.winner = null;
+            onlineState.isTeamMode = false; // Offline is always individual
 
             showScreen('gameContainer');
             if(gameState.config.device === 'mobile') {
@@ -999,7 +1089,7 @@
         }
 
         async function executeAction(action, data) {
-            if (gameState.winner !== null) return; // 既に勝者がいれば操作無効
+            if (gameState.winner !== null) return; 
 
             if (action === 'move') {
                 gameState.players[gameState.turn].x = data.x;
@@ -1029,14 +1119,16 @@
         async function syncBoard(isFinished = false) {
              const safePlayers = gameState.players.map(p => ({
                  x: p.x, y: p.y, walls: p.walls, color: p.color, id: p.id, uid: p.uid || null,
-                 name: p.name || 'P'+(p.id+1), avatar: p.avatar || '👤'
+                 name: p.name || 'P'+(p.id+1), avatar: p.avatar || '👤',
+                 team: p.team || null
              }));
              
              const updateData = {
                  'board.players': safePlayers,
                  'board.walls': gameState.walls,
                  'board.turn': gameState.turn,
-                 'board.winner': gameState.winner
+                 'board.winner': gameState.winner,
+                 'board.isTeamMode': onlineState.isTeamMode
              };
              
              if (isFinished) {
@@ -1182,6 +1274,7 @@
             const container = document.getElementById('statsBar');
             container.innerHTML = gameState.players.map((p, i) => `
                 <div id="stat-p${i}" class="player-stat ${gameState.mode==='online' && p.uid===user.uid ? 'me' : ''}">
+                    ${p.team ? `<span class="team-badge ${p.team==='Red'?'team-red':'team-blue'}">${p.team.charAt(0)}</span>` : ''}
                     <div class="avatar-display">${p.avatar || '👤'}</div>
                     <span>${p.name.length > 5 ? p.name.substring(0,4)+'..' : p.name}</span>
                     <div class="flex gap-1 items-center bg-gray-200 px-2 rounded-full ml-1">
@@ -1240,7 +1333,20 @@
 
         function handleWin(player) {
             const isMe = gameState.mode === 'online' && player.uid === user.uid;
-            document.getElementById('winnerText').textContent = isMe ? "You Win!" : `${player.name} Wins!`;
+            
+            let winText = "";
+            if (onlineState.isTeamMode && player.team) {
+                const myPlayer = gameState.players.find(p => p.uid === user.uid);
+                if (myPlayer && myPlayer.team === player.team) {
+                    winText = `Team ${player.team} Wins! (You Win!)`;
+                } else {
+                    winText = `Team ${player.team} Wins!`;
+                }
+            } else {
+                winText = isMe ? "You Win!" : `${player.name} Wins!`;
+            }
+            
+            document.getElementById('winnerText').textContent = winText;
             
             const overlay = document.getElementById('winOverlay');
             overlay.classList.remove('hidden');
